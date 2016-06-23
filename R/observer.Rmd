@@ -1,0 +1,2864 @@
+---
+output: pdf_document
+---
+
+```{r loadPackages, echo=FALSE, message=FALSE, warning=FALSE}
+## MCMC parameters
+n_chains <- 4
+n_adapt <- 2000
+n_burn <- 2000
+n_iter <- 5000
+
+## Set seed and load libraries/functions
+set.seed(11)
+library(knitr)
+library(sp)
+library(raster)
+library(Gmisc)
+library(loo)
+library(runjags)
+library(myFunctions)
+library(mvtnorm)
+library(maps)
+library(fields)
+library(ggplot2)
+library(snowfall)
+library(parallel)
+library(rlecuyer)
+library(ggmcmc)
+library(coda)
+library(doMC); registerDoMC()
+library(rjags); load.module("glm"); load.module("lecuyer")
+library(random)
+library(xtable)
+library(geoR)
+library(geosphere)
+
+library(fortFunctions)
+
+image.scale <- function(z, zlim, col = heat.colors(12),
+                        breaks, horiz=TRUE, ylim=NULL, xlim=NULL, ...){
+  if(!missing(breaks)){
+    if(length(breaks) != (length(col)+1)){stop("must have one more break than colour")}
+  }
+  if(missing(breaks) & !missing(zlim)){
+    breaks <- seq(zlim[1], zlim[2], length.out=(length(col)+1)) 
+  }
+  if(missing(breaks) & missing(zlim)){
+    zlim <- range(z, na.rm=TRUE)
+    zlim[2] <- zlim[2]+c(zlim[2]-zlim[1])*(1E-3)#adds a bit to the range in both directions
+    zlim[1] <- zlim[1]-c(zlim[2]-zlim[1])*(1E-3)
+    breaks <- seq(zlim[1], zlim[2], length.out=(length(col)+1))
+  }
+  poly <- vector(mode="list", length(col))
+  for(i in seq(poly)){
+    poly[[i]] <- c(breaks[i], breaks[i+1], breaks[i+1], breaks[i])
+  }
+  xaxt <- ifelse(horiz, "s", "n")
+  yaxt <- ifelse(horiz, "n", "s")
+  if(horiz){YLIM<-c(0,1); XLIM<-range(breaks)}
+  if(!horiz){YLIM<-range(breaks); XLIM<-c(0,1)}
+  if(missing(xlim)) xlim=XLIM
+  if(missing(ylim)) ylim=YLIM
+  par(mar=c(0.5, 2.5, 1.75, 0.5))
+  plot(1,1,t="n",ylim=ylim, xlim=xlim, xaxt=xaxt, yaxt=yaxt, xaxs="i", yaxs="i", las=2, cex.axis=1.75, ...)  
+  for(i in seq(poly)){
+    if(horiz){
+      polygon(poly[[i]], c(0,0,1,1), col=col[i], border=NA)
+    }
+    if(!horiz){
+      polygon(c(0,0,1,1), poly[[i]], col=col[i], border=NA)
+    }
+  }
+}
+```
+
+## Simulate data
+
+```{r simulateData, echo=FALSE, cache=TRUE, cache.lazy=FALSE, eval=TRUE}
+## Simulate data
+m <- 1000 # number of spatial locations
+locs <- seq(0, 1, , m) # spatial coordinate
+W <- cbind(rep(1, m), locs,
+           cos(2 * pi * locs), 
+           cos(10 * pi * locs),
+           cos(4 * pi * locs),
+           sin(2 * pi * locs), 
+           sin(10 * pi * locs),
+           sin(4 * pi * locs)
+           )
+reps <- 50 #150 # number of spatial fields
+beta <- matrix(c(rnorm(reps, 0, 0.1), rnorm(reps, 2, 0.1), 
+                 seq(-0.25, 0.25, length=reps), 
+                 rep(seq(-0.25, 0.25, length=5), 10), 
+                 rep(seq(-0.25, 0.25, length=25), 2),
+                 seq(-0.25, 0.25, length=reps), 
+                 rep(seq(-0.25, 0.25, length=5), 10), 
+                 rep(seq(-0.25, 0.25, length=25), 2)),
+               dim(W)[2], reps,
+               byrow = TRUE) # beta
+s2_s <- 1
+phi <- 0.25
+s2_hist <- 1.5
+s2_obs <- 0.75
+nu <- 10
+samp_size <- 50:200
+
+field <- makeSpatialFieldT(reps, W, beta, locs, c(s2_s, phi, nu), 
+                          method = 'exponential', s2_hist, s2_obs, samp_size)
+
+Y_list <- field$Y_list[1:(reps / 2)] 
+H_list <- field$H_list[1:(reps / 2)] 
+HMinus_list <- field$HMinus_list[1:(reps / 2)] 
+Z_list_noiseless <- field$Z_list[1:(reps / 2)]
+Z_list_pca <- field$Z_list[(reps / 2 + 1):reps]
+Z_list_noisy <- field$Z_list_observed[(reps / 2 + 1):reps] 
+ ## True spatial field
+Z_hist <- matrix(unlist(Z_list_noiseless), ncol = reps / 2, byrow = FALSE)
+Z_hist_noisy <- matrix(unlist(field$Z_list_observed[1:(reps / 2)]), ncol = reps / 2, byrow = FALSE)
+X <- matrix(unlist(Z_list_noisy), ncol = reps / 2, byrow = FALSE)
+```
+```{r processData, echo=FALSE}
+N <- dim(X)[1]
+t <- length(Y_list)
+d <- dim(X)[2]
+p <- 24
+nobs <- rep(0, t)
+mu <- rep(0, t)
+Y_center <- Y_list
+for(i in 1:t){
+  nobs[i] <- length(Y_list[[i]])
+  mu[i] <- mean(Y_center[[i]])
+  Y_center[[i]] <- Y_list[[i]] - mu[i]
+}
+
+Y_sparse <- unlist(Y_center)
+H_sparse <- unlist(H_list)
+tt <- rep(1:t, nobs)
+n_thin <- 10
+D_array <- array(0, dim=c(t, max(nobs), max(nobs)))
+I_t <- array(0, dim=c(t, max(nobs), max(nobs)))
+for(i in 1:t){
+  D_array[i, 1:length(H_list[[i]]), 1:length(H_list[[i]])] <- makeDistARMA(as.matrix(locs[H_list[[i]]]), as.matrix(locs[H_list[[i]]]))
+  I_t[i, 1:length(H_list[[i]]), 1:length(H_list[[i]])] <- diag(length(H_list[[i]]))
+}
+
+pos_idx <- rep(1, t+1)
+for(i in 2:(t+1)){
+  pos_idx[i] <- pos_idx[i-1] + nobs[i-1];
+}
+X_PCA <- makePCA(X)
+X_PPCA <- makePPCA(X, p)
+
+```
+
+## define models
+
+```{r PCASSVSHierModelFull, echo=FALSE, eval=TRUE}
+cat("model{
+  # hierarchically pooled data model sqrt(precision)
+  for(i in 1:t){
+    s_inv[i] ~ dlnorm(mu_s_inv, tau2_s)                # pooling prior for data model sqrt(precision)
+  }
+  mu_s_inv ~ dnorm(0, 1 / 100)                         # pooled mean for data model sqrt(precision)
+  tau_s ~ dunif(0, 100)                                # pooled sqrt(precision) for data model sqrt(precision)
+  tau2_s <- pow(tau_s, 2)                              # pooled precision for data model sqrt(precision)
+  
+  # hierarchically pooled ssvs priors
+  for(i in 1:t){
+    tau_beta[i] ~ dlnorm(mu_tau_beta, tau2_tau_beta)   # regression coefficient sqrt(precision)
+    tau2_beta[i] <- pow(tau_beta[i], 2)                # regression coefficient precision
+    precision_beta[1, i] <- tau2_beta[i]               # regression coefficient effectively zero
+    precision_beta[2, i] <- tau2_beta[i] / 1000        # nonzero coefficient
+  }
+  mu_tau_beta ~ dnorm(0, 1 / 100)                      # pooled mean for regression coefficient sqrt(precision)
+  tau_tau_beta ~ dunif(0, 100)                         # pooled sqrt(precision) for regression coefficient sqrt(precision)
+  tau2_tau_beta <- pow(tau_tau_beta, 2)                # pooled precision for  regression coefficient sqrt(precision)
+  p_ind[1] <- 1/2                                      # prior probability of nonzero coefficient
+  p_ind[2] <- 1 - p_ind[1]                             # prior probability effectively zero coefficient
+
+  for (j in 1:t){
+    for(i in 1:p){
+      indA[i, j] ~ dcat(p_ind[])                       # sample indicator for nonzero coefficient, returns 1 or 2 
+      gamma[i, j] <- indA[i, j] - 1                    # transform indicator from 0-1 to 1-2 for indexing, returns 0 or 1
+      beta[i, j] ~ dnorm(0, precision_beta[indA[i, j], j] / D[i])  # ssvs prior for regression coefficients
+    }
+  }
+  
+  for (i in 1:N_total){
+    mu[i] <- X[H[i], ] %*% beta[, tt[i]]              # data model mean for sparse data format
+                                                      # X <- PCA rotation matrix
+                                                      # H <- observation indicator
+    s2_y_inv[i] <- pow(s_inv[tt[i]], 2)               # data model precision for sparse data format
+  }
+
+  # likelihood
+  for (i in 1:N_total){
+    Y[i] ~ dnorm(mu[i], s2_y_inv[i])                 # data model for sparse data format
+  }
+}
+", file="~/spatialModeling/fortData/models/pcaSSVSHierFull.txt")
+```
+```{r PCALassoHierModelFull, echo=FALSE, eval=TRUE}
+cat("model{
+  # hierarchically pooled data model sqrt(precision)
+  for(i in 1:t){
+    s_inv[i] ~ dlnorm(mu_s_inv, tau2_s)                # pooling prior for data model sqrt(precision)
+    s2[i] <- pow(s_inv[i], -2)                         # data model precision
+  }
+  mu_s_inv ~ dnorm(0, 1 / 100)                         # pooled mean for data model sqrt(precision)
+  tau_s ~ dunif(0, 100)                                # pooled sqrt(precision) for data model sqrt(precision)
+  tau2_s <- pow(tau_s, 2)                              # pooled precision for data model sqrt(precision)
+  
+  for (i in 1:N_total){
+    mu_y[i] <- X[H[i], ] %*% beta[, tt[i]]            # data model mean for sparse data format
+                                                      # X <- PCA rotation matrix 
+                                                      # H <- observation indicator
+  }
+
+  # lasso priors
+  for(j in 1:t){  
+    lambda2[j] ~ dgamma(alpha_lambda2, beta_lambda2)  # hierarchically pooled lasso shrinkage parameter
+    for(i in 1:p){
+      gamma2[i, j] ~ dexp(lambda2[j] / 2)             # lasso scale mixture parameter
+      beta[i, j] ~ dnorm(0, 1 / (s2[j] * gamma2[i, j] * D[i]))  # lasso prior model for PCA 
+                                                      # D is a vector of singular values from PCA
+    }
+  }
+  mu_lambda2 ~ dlnorm(0, 1 / 100)                       # hierarchical mean of lambda2 gamma distribution
+  s_lambda2 ~ dunif(0, 100)                            # hierarchical standard deviation of lambda2 gamma distribution
+  alpha_lambda2 <- pow(mu_lambda2, 2) / pow(s_lambda2, 2) # reparameterization of gamma distribution
+  beta_lambda2 <- mu_lambda2 / pow(s_lambda2, 2)       # reparameterization of gamma distribution
+
+  # likelihood
+  for (i in 1:N_total){
+      Y[i] ~ dnorm(mu_y[i], 1 / s2[tt[i]])           # data model for sparse data format
+  }
+}
+", file="~/spatialModeling/fortData/models/PCALassoHierFull.txt")
+```
+```{r tPCASSVSModelHierFull, echo=FALSE, eval=TRUE}
+cat("model{
+  # hierarchically pooled data model sqrt(precision)
+  for(i in 1:t){
+    s_inv[i] ~ dlnorm(mu_s_inv, tau2_s)                # pooling prior for data model sqrt(precision)
+    s2[i] <- pow(s_inv[i], -2)                         # data model precision
+  }
+  mu_s_inv ~ dnorm(0, 1 / 100)                         # pooled mean for data model sqrt(precision)
+  tau_s ~ dunif(0, 100)                                # pooled sqrt(precision) for data model sqrt(precision)
+  tau2_s <- pow(tau_s, 2)                              # pooled precision for data model sqrt(precision)
+  
+  for (i in 1:N_total){
+    mu_y[i] <- X[H[i], ] %*% beta[, tt[i]]             # data model mean for sparse data format
+                                                       # X <- PCA rotation matrix
+                                                       # H <- observation indicator
+    v_inv[i] ~ dchisq(nu[tt[i]])                       # scale mixture for t data model variance
+    v[i] <- (nu[tt[i]] * s2[tt[i]]) / v_inv[i]         # transformation to scaled inv-Chi squared variance
+  }
+
+  # hierarchically pooled ssvs priors
+  for(i in 1:t){
+    tau_beta[i] ~ dlnorm(mu_tau_beta, tau2_tau_beta)   # regression coefficient sqrt(precision)
+    tau2_beta[i] <- pow(tau_beta[i], 2)                # regression coefficient precision
+    precision_beta[1, i] <- tau2_beta[i]               # regression coefficient effectively zero
+    precision_beta[2, i] <- tau2_beta[i] / 1000        # nonzero coefficient
+  }
+  mu_tau_beta ~ dnorm(0, 1 / 100)                           # pooled mean for regression coefficient sqrt(precision)
+  tau_tau_beta ~ dunif(0, 100)                         # pooled sqrt(precision) for regression coefficient sqrt(precision)
+  tau2_tau_beta <- pow(tau_tau_beta, 2)                # pooled precision for  regression coefficient sqrt(precision)
+  p_ind[1] <- 1/2                                      # prior probability of nonzero coefficient
+  p_ind[2] <- 1 - p_ind[1]                             # prior probability effectively zero coefficient
+
+  for (j in 1:t){
+    for(i in 1:p){
+      indA[i, j] ~ dcat(p_ind[])                       # sample indicator for nonzero coefficient, returns 1 or 2 
+      gamma[i, j] <- indA[i, j] - 1                    # transform indicator from 0-1 to 1-2 for indexing, returns 0 or 1
+      beta[i, j] ~ dnorm(0, precision_beta[indA[i, j], j] / D[i])  # ssvs prior for regression coefficients
+    }
+  }
+  
+  # t degrees of freedom
+  for(i in 1:t){
+    nu_inv[i] ~ dbeta(alpha_nu, beta_nu)               # pooled inverse degrees of freedom for t data model
+    nu[i] <- 2 / nu_inv[i]                             # pooled degrees of freedom for t data model
+  }
+  mu_nu ~ dbeta(0.5, 0.5)                              # prior for alternative parameterization
+  eta_nu ~ dgamma(1, 1)                                # prior for alternative parameterization
+  alpha_nu <- mu_nu * eta_nu                           # transformation of prior
+  beta_nu <- (1 - mu_nu) * eta_nu                      # transformation of prior
+
+  # likelihood
+  for (i in 1:N_total){
+    Y[i] ~ dnorm(mu_y[i], 1 / v[i])                    # t mixture data model using precision
+    log_like[i] <- dnorm(Y[i], mu_y[i], 1 / v[i])      # t mixture data likelihood using precision
+  }
+
+}
+", file="~/spatialModeling/fortData/models/tPCASSVSHierFull.txt")
+```
+```{r tPCALassoaHierFull, echo=FALSE, eval=TRUE}
+cat("model{
+  ## hierarchically pooled data model sqrt(precision)
+  for(i in 1:t){
+    s_inv[i] ~ dlnorm(mu_s_inv, tau2_s)                # pooling prior for data model sqrt(precision)
+    s2[i] <- pow(s_inv[i], -2)                         # data model precision
+  }
+  mu_s_inv ~ dnorm(0, 1 / 100)                         # pooled mean for data model sqrt(precision)
+  tau_s ~ dunif(0, 100)                                # pooled sqrt(precision) for data model sqrt(precision)
+  tau2_s <- pow(tau_s, 2)                              # pooled precision for data model sqrt(precision)
+
+  for (i in 1:N_total){
+    mu_y[i] <- X[H[i], ] %*% beta[, tt[i]]            # data model mean for sparse data format
+                                                      # X <- PCA rotation matrix
+                                                      # H <- observation indicator
+    ## hierarchically pooled degress of freedom
+    v_inv[i] ~ dchisq(nu[tt[i]])                      # scale mixture for t data model variance 
+    v[i] <- (nu[tt[i]] * s2[tt[i]]) / v_inv[i]        # transformation to scaled inv-Chi squared variance
+  }
+
+  # lasso priors
+  for(j in 1:t){  
+    lambda2[j] ~ dgamma(alpha_lambda2, beta_lambda2)  # hierarchically pooled lasso shrinkage parameter
+    for(i in 1:p){
+      gamma2[i, j] ~ dexp(lambda2[j] / 2)             # lasso scale mixture parameter
+      beta[i, j] ~ dnorm(0, 1 / (s2[j] * gamma2[i, j] * D[i]))  # lasso prior model for PCA 
+                                                      # D is a vector of singular values from PCA
+    }
+  }
+  mu_lambda2 ~ dlnorm(0, 1 / 100)                       # hierarchical mean of lambda2 gamma distribution
+  s_lambda2 ~ dunif(0, 100)                            # hierarchical standard deviation of lambda2 gamma distribution
+  alpha_lambda2 <- pow(mu_lambda2, 2) / pow(s_lambda2, 2) # reparameterization of gamma distribution
+  beta_lambda2 <- mu_lambda2 / pow(s_lambda2, 2)       # reparameterization of gamma distribution
+
+  # t degrees of freedom
+  for(i in 1:t){
+    nu_inv[i] ~ dbeta(alpha_nu, beta_nu)               # pooled inverse degrees of freedom for t data model
+    nu[i] <- 2 / nu_inv[i]                             # pooled degrees of freedom for t data model
+  }
+  mu_nu ~ dbeta(0.5, 0.5)                              # prior for alternative parameterization
+  eta_nu ~ dgamma(1, 1)                                # prior for alternative parameterization
+  alpha_nu <- mu_nu * eta_nu                           # transformation of prior
+  beta_nu <- (1 - mu_nu) * eta_nu                      # transformation of prior
+
+  ## likelihood
+  for (i in 1:N_total){
+    Y[i] ~ dnorm(mu_y[i], 1 / v[i])                    # t mixture data model using precision
+    log_like[i] <- dnorm(Y[i], mu_y[i], 1 / v[i])      # t mixture data likelihood using precision
+  }
+}
+", file="~/spatialModeling/fortData/models/tPCALassoaHierFull.txt")
+```
+```{r tPCALassoHierModelb, echo=FALSE, eval=TRUE}
+cat("model{
+  ## hierarchically pooled data model sqrt(precision)
+  for(i in 1:t){
+    s_inv[i] ~ dlnorm(mu_s_inv, tau2_s)                # pooling prior for data model sqrt(precision)
+    s2[i] <- pow(s_inv[i], -2)                         # data model precision
+  }
+  mu_s_inv ~ dnorm(0, 1 / 100)                         # pooled mean for data model sqrt(precision)
+  tau_s ~ dunif(0, 100)                                # pooled sqrt(precision) for data model sqrt(precision)
+  tau2_s <- pow(tau_s, 2)                              # pooled precision for data model sqrt(precision)
+
+  for (i in 1:N_total){
+    mu_y[i] <- X[H[i], ] %*% beta[, tt[i]]             # data model mean for sparse data format
+                                                       # X <- PCA rotation matrix
+                                                       # H <- observation indicator
+    ## hierarchically pooled degress of freedom
+    v_inv[i] ~ dchisq(nu[tt[i]])                       # scale mixture for t data model variance 
+    v[i] <- (nu[tt[i]] * s2[tt[i]]) / v_inv[i]         # transformation to scaled inv-Chi squared variance
+  }
+
+  # lasso priors
+  for(j in 1:t){  
+    lambda2[j] ~ dgamma(alpha_lambda2, beta_lambda2)  # hierarchically pooled lasso shrinkage parameter
+    for(i in 1:p){
+      gamma2[i, j] ~ dexp(lambda2[j] / 2)             # lasso scale mixture parameter
+      beta[i, j] ~ dnorm(0, 1 / (s2[j] * nu[j] / (nu[j] - 2) * gamma2[i, j] * D[i]))  # lasso prior model for tPCA 
+                                                      # D is a vector of singular values from PCA
+    }
+  }
+  mu_lambda2 ~ dlnorm(0, 1 / 100)                       # hierarchical mean of lambda2 gamma distribution
+  s_lambda2 ~ dunif(0, 100)                            # hierarchical standard deviation of lambda2 gamma distribution
+  alpha_lambda2 <- pow(mu_lambda2, 2) / pow(s_lambda2, 2) # reparameterization of gamma distribution
+  beta_lambda2 <- mu_lambda2 / pow(s_lambda2, 2)       # reparameterization of gamma distribution
+
+  # t degrees of freedom
+  for(i in 1:t){
+    nu_inv[i] ~ dbeta(alpha_nu, beta_nu)               # pooled inverse degrees of freedom for t data model
+    nu[i] <- 2 / nu_inv[i]                             # pooled degrees of freedom for t data model
+  }
+  mu_nu ~ dbeta(0.5, 0.5)                              # prior for alternative parameterization
+  eta_nu ~ dgamma(1, 1)                                # prior for alternative parameterization
+  alpha_nu <- mu_nu * eta_nu                           # transformation of prior
+  beta_nu <- (1 - mu_nu) * eta_nu                      # transformation of prior
+
+  # likelihood
+  for (i in 1:N_total){
+    Y[i] ~ dnorm(mu_y[i], 1 / v[i])                    # t mixture data model using precision
+    log_like[i] <- dnorm(Y[i], mu_y[i], 1 / v[i])      # t mixture data likelihood using precision
+  }
+
+}
+", file="~/spatialModeling/fortData/models/tPCALassobHierFull.txt")
+```
+
+```{r pPCASSVSModelHierFull, echo=FALSE, eval=TRUE}
+cat("model{
+  ## hierarchically pooled data model variance
+  for(j in 1:t){
+    tau_inv[j] ~ dlnorm(mu_tau, tau2_tau)              # pooling prior for data model sqrt(precision)
+    tau2[j] <- pow(tau_inv[j], -2)                     # data model precision
+  }
+  mu_tau ~ dnorm(0, 1 / 100)                           # pooled mean for data model sqrt(precision)
+  tau_tau ~ dunif(0, 100)                              # pooled sqrt(precision) for data model sqrt(precision)
+  tau2_tau <- pow(tau_tau, 2)                          # pooled precision for data model sqrt(precision)
+  ## latent variance model 
+  s_inv ~ dunif(0, 100)                                # prior for latent principal component sqrt(precision)
+  s2 <- pow(s_inv, -2)                                 # prior for latent principal component precision
+  M_inv <- inverse(tKK / s2 + I_p)                     # scaling matrix for PCA
+
+  for(i in 1:N_total){
+    mu_y[i] <- X[H[i], ] %*% K_hat %*% M_inv %*% beta[, tt[i]] / s2
+                                                      # data model mean for sparse data format
+                                                      # X <- original data matrix
+                                                      # K_hat <- PCA rotation matrix
+                                                      # H <- observation indicator
+  }
+  for(i in 1:t){
+    tau_y[i] <- pow(tau2[i] + t(beta[, i]) %*% M_inv %*% beta[, i], -1)
+                                                      # data model precision
+  }
+
+  # hierarchically pooled ssvs priors
+  for(i in 1:t){
+    tau_beta[i] ~ dlnorm(mu_tau_beta, tau2_tau_beta)   # regression coefficient sqrt(precision)
+    tau2_beta[i] <- pow(tau_beta[i], 2)                # regression coefficient precision
+    precision_beta[1, i] <- tau2_beta[i]               # regression coefficient effectively zero
+    precision_beta[2, i] <- tau2_beta[i] / 1000        # nonzero coefficient
+  }
+  mu_tau_beta ~ dnorm(0, 1 / 100)                      # pooled mean for regression coefficient sqrt(precision)
+  tau_tau_beta ~ dunif(0, 100)                         # pooled sqrt(precision) for regression coefficient sqrt(precision)
+  tau2_tau_beta <- pow(tau_tau_beta, 2)                # pooled precision for  regression coefficient sqrt(precision)
+  p_ind[1] <- 1/2                                      # prior probability of nonzero coefficient
+  p_ind[2] <- 1 - p_ind[1]                             # prior probability effectively zero coefficient
+
+  for (j in 1:t){
+    for(i in 1:p){
+      indA[i, j] ~ dcat(p_ind[])                       # sample indicator for nonzero coefficient, returns 1 or 2 
+      gamma[i, j] <- indA[i, j] - 1                    # transform indicator from 0-1 to 1-2 for indexing, returns 0 or 1
+      beta[i, j] ~ dnorm(0, precision_beta[indA[i, j], j])  # ssvs prior for regression coefficients
+    }
+  }
+
+  # likelihood
+  for (i in 1:N_total){
+    Y[i] ~ dnorm(mu_y[i], tau_y[tt[i]])                # data model for sparse data format
+  }
+}
+", file="~/spatialModeling/fortData/models/pPCASSVSHierFull.txt")
+```
+```{r pPCALassoModelHier, echo=FALSE, eval=TRUE}
+cat("model{
+  ## hierarchically pooled data model variance
+  for(j in 1:t){
+    tau_inv[j] ~ dlnorm(mu_tau, tau2_tau)              # pooling prior for data model sqrt(precision)
+    tau2[j] <- pow(tau_inv[j], -2)                     # data model precision
+  }
+  mu_tau ~ dnorm(0, 1 / 100)                           # pooled mean for data model sqrt(precision)
+  tau_tau ~ dunif(0, 100)                              # pooled sqrt(precision) for data model sqrt(precision)
+  tau2_tau <- pow(tau_tau, 2)                          # pooled precision for data model sqrt(precision)
+  ## latent variance model 
+  s_inv ~ dunif(0, 100)                                # prior for latent principal component sqrt(precision)
+  s2 <- pow(s_inv, -2)                                 # prior for latent principal component precision
+  M_inv <- inverse(tKK / s2 + I_p)                     # scaling matrix for PCA
+
+  for(i in 1:N_total){
+    mu_y[i] <- X[H[i], ] %*% K_hat %*% M_inv %*% beta[, tt[i]] / s2
+                                                      # data model mean for sparse data format
+                                                      # X <- original data matrix
+                                                      # K_hat <- PCA rotation matrix
+                                                      # H <- observation indicator
+  }
+  for(i in 1:t){
+    tau_y[i] <- pow(tau2[i] + t(beta[, i]) %*% M_inv %*% beta[, i], -1)
+                                                      # data model precision
+  }
+
+  # lasso priors
+  for(j in 1:t){  
+    lambda2[j] ~ dgamma(alpha_lambda2, beta_lambda2)  # hierarchically pooled lasso shrinkage parameter
+    for(i in 1:p){
+      gamma2[i, j] ~ dexp(lambda2[j] / 2)             # lasso scale mixture parameter
+      beta[i, j] ~ dnorm(0, 1 / (tau2[j] * gamma2[i, j]))  # lasso prior model for PCA 
+    }
+  }
+  mu_lambda2 ~ dlnorm(0, 1 / 100)                      # hierarchical mean of lambda2 gamma distribution
+  s_lambda2 ~ dunif(0, 100)                            # hierarchical standard deviation of lambda2 gamma distribution
+  alpha_lambda2 <- pow(mu_lambda2, 2) / pow(s_lambda2, 2) # reparameterization of gamma distribution
+  beta_lambda2 <- mu_lambda2 / pow(s_lambda2, 2)       # reparameterization of gamma distribution
+
+  # likelihood
+  for (i in 1:N_total){
+      Y[i] ~ dnorm(mu_y[i], tau_y[tt[i]])              # data model for sparse data format
+  }
+}
+", file="~/spatialModeling/fortData/models/pPCALassoHierFull.txt")
+```
+```{r tpPCASSVSHierModelFull, echo=FALSE, eval=TRUE}
+cat("model{
+  ## hierarchically pooled data model variance
+  for(j in 1:t){
+    tau_inv[j] ~ dlnorm(mu_tau, tau2_tau)              # pooling prior for data model sqrt(precision)
+    tau2[j] <- pow(tau_inv[j], -2)                     # data model precision
+  }
+  mu_tau ~ dnorm(0, 1 / 100)                           # pooled mean for data model sqrt(precision)
+  tau_tau ~ dunif(0, 100)                              # pooled sqrt(precision) for data model sqrt(precision)
+  tau2_tau <- pow(tau_tau, 2)                          # pooled precision for data model sqrt(precision)
+  ## latent variance model 
+  s_inv ~ dunif(0, 100)                                # prior for latent principal component sqrt(precision)
+  s2 <- pow(s_inv, -2)                                 # prior for latent principal component precision
+  M_inv <- inverse(tKK / s2 + I_p)                     # scaling matrix for PCA
+
+  for (i in 1:N_total){
+    mu_y[i] <- X[H[i], ] %*% K_hat %*% M_inv %*% beta[, tt[i]] / s2
+                                                      # data model mean for sparse data format
+                                                      # X <- original data matrix
+                                                      # K_hat <- PCA rotation matrix
+                                                      # H <- observation indicator
+    ## hierarchically pooled degress of freedom
+    v_inv[i] ~ dchisq(nu[tt[i]])                      # scale mixture for t data model variance 
+    v[i] <- (nu[tt[i]] * tau2[tt[i]]) / v_inv[i]      # transformation to scaled inv-Chi squared variance
+    tau_y[i] <- pow(v[i] + t(beta[, tt[i]]) %*% M_inv %*% beta[, tt[i]], -1)
+                                                      # data model precision for sparse data format
+  }
+
+  # hierarchically pooled ssvs priors
+  for(i in 1:t){
+    tau_beta[i] ~ dlnorm(mu_tau_beta, tau2_tau_beta)   # regression coefficient sqrt(precision)
+    tau2_beta[i] <- pow(tau_beta[i], 2)                # regression coefficient precision
+    precision_beta[1, i] <- tau2_beta[i]               # regression coefficient effectively zero
+    precision_beta[2, i] <- tau2_beta[i] / 1000        # nonzero coefficient
+  }
+  mu_tau_beta ~ dnorm(0, 1 / 100)                      # pooled mean for regression coefficient sqrt(precision)
+  tau_tau_beta ~ dunif(0, 100)                         # pooled sqrt(precision) for regression coefficient sqrt(precision)
+  tau2_tau_beta <- pow(tau_tau_beta, 2)                # pooled precision for  regression coefficient sqrt(precision)
+  p_ind[1] <- 1/2                                      # prior probability of nonzero coefficient
+  p_ind[2] <- 1 - p_ind[1]                             # prior probability effectively zero coefficient
+
+  for (j in 1:t){
+    for(i in 1:p){
+      indA[i, j] ~ dcat(p_ind[])                       # sample indicator for nonzero coefficient, returns 1 or 2 
+      gamma[i, j] <- indA[i, j] - 1                    # transform indicator from 0-1 to 1-2 for indexing, returns 0 or 1
+      beta[i, j] ~ dnorm(0, precision_beta[indA[i, j], j])  # ssvs prior for regression coefficients
+    }
+  }
+  
+  # t degrees of freedom
+  for(i in 1:t){
+    nu_inv[i] ~ dbeta(alpha_nu, beta_nu)               # pooled inverse degrees of freedom for t data model
+    nu[i] <- 2 / nu_inv[i]                             # pooled degrees of freedom for t data model
+  }
+  mu_nu ~ dbeta(0.5, 0.5)                              # prior for alternative parameterization
+  eta_nu ~ dgamma(1, 1)                                # prior for alternative parameterization
+  alpha_nu <- mu_nu * eta_nu                           # transformation of prior
+  beta_nu <- (1 - mu_nu) * eta_nu                      # transformation of prior
+
+  # likelihood
+  for (i in 1:N_total){
+    Y[i] ~ dnorm(mu_y[i], tau_y[i])                    # t mixture data model using precision
+    log_like[i] <- dnorm(Y[i], mu_y[i], tau_y[i])      # t mixture data likelihood using precision 
+  }
+}
+", file="~/spatialModeling/fortData/models/tpPCASSVSHierFull.txt")
+```
+```{r tpPCALassoaHierModelFull, echo=FALSE, eval=TRUE}
+cat("model{
+  ## hierarchically pooled data model variance
+  for(j in 1:t){
+    tau_inv[j] ~ dlnorm(mu_tau, tau2_tau)              # pooling prior for data model sqrt(precision)
+    tau2[j] <- pow(tau_inv[j], -2)                     # data model precision
+  }
+  mu_tau ~ dnorm(0, 1 / 100)                           # pooled mean for data model sqrt(precision)
+  tau_tau ~ dunif(0, 100)                              # pooled sqrt(precision) for data model sqrt(precision)
+  tau2_tau <- pow(tau_tau, 2)                          # pooled precision for data model sqrt(precision)
+  ## latent variance model 
+  s_inv ~ dunif(0, 100)                                # prior for latent principal component sqrt(precision)
+  s2 <- pow(s_inv, -2)                                 # prior for latent principal component precision
+  M_inv <- inverse(tKK / s2 + I_p)                     # scaling matrix for PCA
+
+  for (i in 1:N_total){
+    mu_y[i] <- X[H[i], ] %*% K_hat %*% M_inv %*% beta[, tt[i]] / s2
+                                                      # data model mean for sparse data format
+                                                      # X <- original data matrix
+                                                      # K_hat <- PCA rotation matrix
+                                                      # H <- observation indicator
+    ## hierarchically pooled degress of freedom
+    v_inv[i] ~ dchisq(nu[tt[i]])                      # scale mixture for t data model variance 
+    v[i] <- (nu[tt[i]] * tau2[tt[i]]) / v_inv[i]      # transformation to scaled inv-Chi squared variance
+    tau_y[i] <- pow(v[i] + t(beta[, tt[i]]) %*% M_inv %*% beta[, tt[i]], -1)
+                                                      # data model precision for sparse data format
+  }
+
+  # lasso priors
+  for(j in 1:t){  
+    lambda2[j] ~ dgamma(alpha_lambda2, beta_lambda2)  # hierarchically pooled lasso shrinkage parameter
+    for(i in 1:p){
+      gamma2[i, j] ~ dexp(lambda2[j] / 2)             # lasso scale mixture parameter
+      beta[i, j] ~ dnorm(0, 1 / (tau2[j] * gamma2[i, j]))  # lasso prior model for tpPCA 
+    }
+  }
+  mu_lambda2 ~ dlnorm(0, 1 / 100)                       # hierarchical mean of lambda2 gamma distribution
+  s_lambda2 ~ dunif(0, 100)                            # hierarchical standard deviation of lambda2 gamma distribution
+  alpha_lambda2 <- pow(mu_lambda2, 2) / pow(s_lambda2, 2) # reparameterization of gamma distribution
+  beta_lambda2 <- mu_lambda2 / pow(s_lambda2, 2)       # reparameterization of gamma distribution
+
+  # t degrees of freedom
+  for(i in 1:t){
+    nu_inv[i] ~ dbeta(alpha_nu, beta_nu)               # pooled inverse degrees of freedom for t data model
+    nu[i] <- 2 / nu_inv[i]                             # pooled degrees of freedom for t data model
+  }
+  mu_nu ~ dbeta(0.5, 0.5)                              # prior for alternative parameterization
+  eta_nu ~ dgamma(1, 1)                                # prior for alternative parameterization
+  alpha_nu <- mu_nu * eta_nu                           # transformation of prior
+  beta_nu <- (1 - mu_nu) * eta_nu                      # transformation of prior
+
+  # likelihood
+  for (i in 1:N_total){
+    Y[i] ~ dnorm(mu_y[i], tau_y[i])                    # t mixture data model using precision
+    log_like[i] <- dnorm(Y[i], mu_y[i], tau_y[i])      # t mixture data likelihood using precision 
+  }
+}", file="~/spatialModeling/fortData/models/tpPCALassoaHierFull.txt")
+```
+```{r tpPCALassobHierModelFull, echo=FALSE, eval=TRUE}
+cat("model{
+  ## hierarchically pooled data model variance
+  for(j in 1:t){
+    tau_inv[j] ~ dlnorm(mu_tau, tau2_tau)              # pooling prior for data model sqrt(precision)
+    tau2[j] <- pow(tau_inv[j], -2)                     # data model precision
+  }
+  mu_tau ~ dnorm(0, 1 / 100)                           # pooled mean for data model sqrt(precision)
+  tau_tau ~ dunif(0, 100)                              # pooled sqrt(precision) for data model sqrt(precision)
+  tau2_tau <- pow(tau_tau, 2)                          # pooled precision for data model sqrt(precision)
+  ## latent variance model 
+  s_inv ~ dunif(0, 100)                                # prior for latent principal component sqrt(precision)
+  s2 <- pow(s_inv, -2)                                 # prior for latent principal component precision
+  M_inv <- inverse(tKK / s2 + I_p)                     # scaling matrix for PCA
+
+  for (i in 1:N_total){
+    mu_y[i] <- X[H[i], ] %*% K_hat %*% M_inv %*% beta[, tt[i]] / s2
+                                                      # data model mean for sparse data format
+                                                      # X <- original data matrix
+                                                      # K_hat <- PCA rotation matrix
+                                                      # H <- observation indicator
+    ## hierarchically pooled degress of freedom
+    v_inv[i] ~ dchisq(nu[tt[i]])                      # scale mixture for t data model variance 
+    v[i] <- (nu[tt[i]] * tau2[tt[i]]) / v_inv[i]      # transformation to scaled inv-Chi squared variance
+    tau_y[i] <- pow(v[i] + t(beta[, tt[i]]) %*% M_inv %*% beta[, tt[i]], -1)
+                                                      # data model precision for sparse data format
+  }
+
+  # lasso priors
+  for(j in 1:t){  
+    lambda2[j] ~ dgamma(alpha_lambda2, beta_lambda2)  # hierarchically pooled lasso shrinkage parameter
+    for(i in 1:p){
+      gamma2[i, j] ~ dexp(lambda2[j] / 2)             # lasso scale mixture parameter
+      beta[i, j] ~ dnorm(0, 1 / (tau2[j] * nu[j] / (nu[j] - 2) * gamma2[i, j]))  # lasso prior model for tpPCA 
+    }
+  }
+
+  mu_lambda2 ~ dlnorm(0, 1 / 100)                       # hierarchical mean of lambda2 gamma distribution
+  s_lambda2 ~ dunif(0, 100)                            # hierarchical standard deviation of lambda2 gamma distribution
+  alpha_lambda2 <- pow(mu_lambda2, 2) / pow(s_lambda2, 2) # reparameterization of gamma distribution
+  beta_lambda2 <- mu_lambda2 / pow(s_lambda2, 2)       # reparameterization of gamma distribution
+
+  # t degrees of freedom
+  for(i in 1:t){
+    nu_inv[i] ~ dbeta(alpha_nu, beta_nu)               # pooled inverse degrees of freedom for t data model
+    nu[i] <- 2 / nu_inv[i]                             # pooled degrees of freedom for t data model
+  }
+  mu_nu ~ dbeta(0.5, 0.5)                              # prior for alternative parameterization
+  eta_nu ~ dgamma(1, 1)                                # prior for alternative parameterization
+  alpha_nu <- mu_nu * eta_nu                           # transformation of prior
+  beta_nu <- (1 - mu_nu) * eta_nu                      # transformation of prior
+
+  # likelihood
+  for (i in 1:N_total){
+    Y[i] ~ dnorm(mu_y[i], tau_y[i])                    # t mixture data model using precision
+    log_like[i] <- dnorm(Y[i], mu_y[i], tau_y[i])      # t mixture data likelihood using precision 
+  }
+}", file="~/spatialModeling/fortData/models/tpPCALassobHierFull.txt")
+```
+
+## Plot Data
+
+```{r, data-plot, include=FALSE, echo=FALSE, fig.height=6, fig.width=12, eval=TRUE}
+data(fortFunctions)
+## Load updated data
+load("~/spatialModeling/data/fortTempDataUpdated.RData")
+
+# N <- dim(X.farenheit)[1]
+t <- length(Y.list)
+## Convert updated data to Farenheit
+for (i in 1:t) {
+  Y.list[[i]] <- (Y.list[[i]] * 9 / 5 + 32)
+}
+
+set.seed(401)
+subset <- c(12, 28, 56, 71)
+
+set.seed(401)
+subset_prism <- sort(sample(1:116, 4))
+
+min_prism <- rep(0, length(subset_prism))
+max_prism <- rep(0, length(subset_prism))
+k <- 0
+for(i in subset_prism){
+  k <- k + 1
+  min_prism[k] <- min(values(prism[[i]])[ - na.rows]) / 100 * 9 / 5 + 32
+  max_prism[k] <- max(values(prism[[i]])[ - na.rows]) / 100 * 9 / 5 + 32
+}
+
+# par(mfrow=c(2, 4), mar=c(0.5, 0.5, 1.75, 0.5) + 0.1, oma=c(0, 0, 0.25, 2.5) + 0.1)
+layout(matrix(c(1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4, 9,
+                1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4, 9, 
+                1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4, 9, 
+                5, 5, 5, 6, 6, 6, 7, 7, 7, 8, 8, 8, 9,
+                5, 5, 5, 6, 6, 6, 7, 7, 7, 8, 8, 8, 9,                
+                5, 5, 5, 6, 6, 6, 7, 7, 7, 8, 8, 8, 9), 6, 13, byrow=TRUE))
+ par(mar=c(0.5, 0.5, 1.75, 0.5) + 0.1, oma=c(0, 0, 0.25, 0.25) + 0.1)
+for(i in subset[1:2]){
+
+  # palette(topo.colors(64))
+  idx <- rep(0, length = length((values(fort.raster[[i]])[ - na.rows][H.list[[i]]])))
+  for(j in 1:length((values(fort.raster[[i]])[ - na.rows][H.list[[i]]]))){
+    idx[j] <- findInterval(((values(fort.raster[[i]])[ - na.rows][H.list[[i]]]))[j] * 9 / 5 + 32, 
+                           seq(min(min_prism), max(max_prism), length = 64))    
+  }
+  image((fort.raster[[i]]), main = paste(i + 1819), col = topo.colors(64), 
+        zlim = c(min(min_prism), max(max_prism)), ylab = '', xlab='', xaxt="n", yaxt='n',
+        cex.main=2.5)
+  # usr <- par('usr')
+  # rect(usr[1],usr[3],usr[2],usr[4], col=adjustcolor('lightgrey', alpha.f=0.5))
+  points(prism.points[H.list[[i]], ], pch = 16, col = topo.colors(64)[idx], cex = 1.5)
+  map(database = 'state', add = TRUE, col = 'black')
+  if(i == subset[1]){
+    mtext("(a)",side=3,line=-1.9,adj=c(0.1),cex=2,col="black")
+  }
+}
+
+for(i in subset_prism[1:2]){
+  image(prism[[i]] / 100 * 9 / 5 + 32, main = paste(i + 1894), col = topo.colors(64), zlim = c(min(min_prism), max(max_prism)), ylab = '', xlab='', yaxt="n", xaxt="n", cex.main=2.5)
+  if(i == subset_prism[1]){
+    mtext("(b)",side=3,line=-1.9,adj=c(0.1),cex=2,col="black")
+  }
+  map(database = 'state', add = TRUE, col = 'black')
+}
+
+for(i in subset[3:4]){
+  # palette(topo.colors(64))
+  idx <- rep(0, length = length((values(fort.raster[[i]])[ - na.rows][H.list[[i]]])))
+  for(j in 1:length((values(fort.raster[[i]])[ - na.rows][H.list[[i]]]))){
+    idx[j] <- findInterval(((values(fort.raster[[i]])[ - na.rows][H.list[[i]]]))[j] * 9 / 5 + 32, 
+                           seq(min(min_prism), max(max_prism), length = 64))    
+  }
+  image((fort.raster[[i]]), main = paste(i + 1819), col = topo.colors(64), 
+        zlim = c(min(min_prism), max(max_prism)), ylab = '', xlab='', xaxt="n", yaxt='n',
+        cex.main=2.5)
+  points(prism.points[H.list[[i]], ], pch = 16, col = topo.colors(64)[idx], cex = 1.5)
+  map(database = 'state', add = TRUE, col = 'black')
+}
+
+for(i in subset_prism[3:4]){
+  image(prism[[i]] / 100 * 9 / 5 + 32, main = paste(i + 1894), col = topo.colors(64), zlim = c(min(min_prism), max(max_prism)), ylab = '', xlab='', yaxt="n", xaxt="n", cex.main=2.5)
+  map(database = 'state', add = TRUE, col = 'black')
+}
+image.scale(prism[[i]], col = topo.colors(64), 
+           zlim = c(min(min_prism), max(max_prism)), horiz=FALSE)
+```
+
+\begin{figure}
+\centering
+\centering\includegraphics[width=0.95\linewidth]{tipton-06-10-2016_files/figure-latex/data-plot-1.pdf}
+\caption{Four representative years of the historical fort temperature data (a) and the observational PRISM temperature data (b).}
+\label{fig:plotdata}
+\end{figure}
+
+## Fit models on simulated data
+
+```{r PCASSVSHier, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE}
+jinits <- function(){
+  list(beta=matrix(rnorm(p, 0, 10), p, t), s_inv=runif(t, 0, 100))
+}
+
+dat <- list(Y=Y_sparse, X=X_PCA$X_pca[, 1:p], p=p, D=c(X_PCA$sdev^2),
+            H=H_sparse, t=t, tt=tt, N_total=sum(nobs))
+
+params <- c("gamma", "beta", "s_inv", "tau2_beta")
+
+samps <- foreach(i=1:n_chains, .inorder = FALSE, 
+                 .packages = c("rjags", "random"), .combine = "mcmc.combine", 
+                 .multicombine = TRUE) %dopar% {
+  model.jags <- jags.model("~/spatialModeling/fortData/models/PCASSVSHierFull.txt", data=dat,
+                           inits=jinits,
+                           n.chain=1, n.adapt=n_adapt)
+  update(model.jags, n_burn)
+  result <- coda.samples(model.jags, params, n_iter)
+  return(result)
+}
+samps <- combine.mcmc(samps)
+n_samps <- dim(samps)[1]
+
+s_invs <- matrix(0, n_samps, t)
+betas <- array(0, dim=c(n_samps, t, p))
+for(i in 1:t){
+  s_invs[, i] <- samps[, paste("s_inv[", i, "]", sep="")]
+  for(j in 1:p){
+    betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")]
+  }
+}               
+
+summaries <- processPCASamples(t, p, n_samps, N, betas,
+                               s_invs, X_PCA$X_pca[, 1:p],
+                               Y_list, H_list, mu, nobs, n_thin)
+
+y_tilde_mean_pca_ssvs_hier <- summaries$y_tilde_mean
+y_tilde_sd_pca_ssvs_hier <- summaries$y_tilde_sd
+crps_pca_ssvs_hier <- makeCRPS(summaries$y_tilde, Z_hist, n_samps / n_thin)
+loo_pca_ssvs_hier <- loo(matrix(unlist(summaries$log_like), n_samps / n_thin, 
+                                sum(nobs), byrow=FALSE))
+rm(samps, betas, s_invs, summaries)
+```
+```{r PCALassoHier, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE}
+jinits <- function(){
+  list(beta=matrix(rnorm(p, 0, 10), p, t), s_inv=runif(t, 0, 100),
+       gamma2=matrix(rgamma(p*t, 1, 1), p, t), lambda2 = rexp(t))
+}
+
+dat <- list(Y=Y_sparse, X=X_PCA$X_pca[, 1:p], p=p, H=H_sparse, t=t,
+            tt=tt, N_total=sum(nobs), D=(X_PCA$sdev^2)[1:p])
+
+params <- c("gamma2", "lambda2", "beta", "s_inv")
+
+samps <- foreach(i=1:n_chains, .inorder = FALSE, 
+                 .packages = c("rjags", "random"), .combine = "mcmc.combine", 
+                 .multicombine = TRUE) %dopar% {
+  model.jags <- jags.model("~/spatialModeling/fortData/models/PCALassoHierFull.txt", 
+                           data=dat, inits=jinits, n.chain=1, n.adapt=n_adapt)
+  update(model.jags, n_burn)
+  result <- coda.samples(model.jags, params, n_iter)
+  return(result)
+}
+samps <- combine.mcmc(samps)
+n_samps <- dim(samps)[1]
+
+s_invs <- matrix(0, n_samps, t)
+betas <- array(0, dim=c(n_samps, t, p))
+for(i in 1:t){
+  s_invs[, i] <- samps[, paste("s_inv[", i, "]", sep="")]
+  for(j in 1:p){
+    betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")]
+  }
+}               
+
+summaries <- processPCASamples(t, p, n_samps, N, betas, s_invs,
+                               X_PCA$X_pca[, 1:p], Y_list,
+                               H_list, mu, nobs, n_thin)
+
+y_tilde_mean_pca_lasso_hier <- summaries$y_tilde_mean 
+y_tilde_sd_pca_lasso_hier <- summaries$y_tilde_sd
+crps_pca_lasso_hier <- makeCRPS(summaries$y_tilde, Z_hist, n_samps / n_thin)
+loo_pca_lasso_hier <- loo(matrix(unlist(summaries$log_like), 
+                          n_samps / n_thin, sum(nobs), byrow=FALSE))
+rm(samps, summaries, betas, s_invs)
+```
+```{r tPCASSVSHier, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE}
+jinits <- function(){
+  list(beta=matrix(rnorm(p, 0, 10), p, t), s_inv=runif(t, 0, 100))
+}
+
+dat <- list(Y=Y_sparse, X=X_PCA$X_pca[, 1:p], p=p, D=c(X_PCA$sdev^2),
+            H=H_sparse, t=t, tt=tt, N_total=sum(nobs))
+
+params <- c("gamma", "beta", "s_inv", "tau2_beta", "nu", "v_inv", "log_like")
+
+samps <- foreach(i=1:n_chains, .inorder = FALSE, 
+                 .packages = c("rjags", "random"), .combine = "mcmc.combine", 
+                 .multicombine = TRUE) %dopar% {
+  model.jags <- jags.model("~/spatialModeling/fortData/models/tPCASSVSHierFull.txt",
+                           data=dat, inits=jinits, n.chain=1, n.adapt=n_adapt)
+  update(model.jags, n_burn)
+  result <- coda.samples(model.jags, params, n_iter)
+  return(result)
+}
+samps <- combine.mcmc(samps)
+n_samps <- dim(samps)[1]
+
+nus <- matrix(0, n_samps, t)
+v_invs <- matrix(0, n_samps, sum(nobs))
+s_invs <- matrix(0, n_samps, t)
+betas <- array(0, dim=c(n_samps, t, p))
+log_like <- matrix(0, n_samps, sum(nobs))
+for(i in 1:t){
+  s_invs[, i] <- samps[, paste("s_inv[", i, "]", sep="")]
+  nus[, i] <- samps[, paste("nu[", i, "]", sep="")]
+  for(j in 1:p){
+    betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")]
+  }
+}               
+for(i in 1:sum(nobs)){
+  log_like[, i] <- log(samps[, paste("log_like[", i, "]", sep="")])
+  v_invs[, i] <- samps[, paste("v_inv[", i, "]", sep="")]
+}    
+
+summaries <- processPCASamplesT2(t, p, n_samps, N, betas, s_invs, nus, 
+                                       v_invs, X_PCA$X_pca[, 1:p], Y_list,
+                                       H_list, mu, nobs, n_thin)
+
+y_tilde_mean_tpca_ssvs_hier <- summaries$y_tilde_mean 
+y_tilde_sd_tpca_ssvs_hier <- summaries$y_tilde_sd
+crps_tpca_ssvs_hier <- makeCRPS(summaries$y_tilde, Z_hist, n_samps / n_thin)
+loo_tpca_ssvs_hier <- loo(log_like)
+rm(samps, nus, v_invs, s_invs, betas, log_like, summaries)
+```
+```{r tPCALassoaHier, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE}
+jinits <- function(){
+  list(beta=matrix(rnorm(p, 0, 10), p, t), s_inv=runif(t, 0, 100),
+       gamma2=matrix(rgamma(p*t, 1, 1), p, t), lambda2=rexp(t))
+}
+
+dat <- list(Y=Y_sparse, X=X_PCA$X_pca[, 1:p], p=p, H=H_sparse, t=t,
+            tt=tt, N_total=sum(nobs), D=(X_PCA$sdev^2)[1:p])
+
+params <- c("gamma2", "lambda2", "beta", "v_inv", "nu", "s_inv", "log_like")
+
+samps <- foreach(i=1:n_chains, .inorder = FALSE, 
+                 .packages = c("rjags", "random"), .combine = "mcmc.combine", 
+                 .multicombine = TRUE) %dopar% {
+  model.jags <- jags.model("~/spatialModeling/fortData/models/tPCALassoaHierFull.txt", 
+                           data=dat, inits=jinits, n.chain=1, n.adapt=n_adapt)
+  update(model.jags, n_burn)
+  result <- coda.samples(model.jags, params, n_iter)
+  return(result)
+}
+samps <- combine.mcmc(samps)
+n_samps <- dim(samps)[1]
+
+nus <- matrix(0, n_samps, t)
+v_invs <- matrix(0, n_samps, sum(nobs))
+s_invs <- matrix(0, n_samps, t)
+betas <- array(0, dim=c(n_samps, t, p))
+log_like <- matrix(0, n_samps, sum(nobs))
+for(i in 1:t){
+  s_invs[, i] <- samps[, paste("s_inv[", i, "]", sep="")]
+  nus[, i] <- samps[, paste("nu[", i, "]", sep="")]
+  for(j in 1:p){
+    betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")]
+  }
+}               
+for(i in 1:sum(nobs)){
+  log_like[, i] <- log(samps[, paste("log_like[", i, "]", sep="")])
+  v_invs[, i] <- samps[, paste("v_inv[", i, "]", sep="")]
+}
+
+summaries <- processPCASamplesT2(t, p, n_samps, N, betas, s_invs, nus,
+                                       v_invs, X_PCA$X_pca[, 1:p], Y_list, 
+                                       H_list, mu, nobs,n_thin)
+
+y_tilde_mean_tpca_lassoa_hier <- summaries$y_tilde_mean 
+y_tilde_sd_tpca_lassoa_hier <- summaries$y_tilde_sd
+crps_tpca_lassoa_hier <- makeCRPS(summaries$y_tilde, Z_hist, n_samps / n_thin)
+loo_tpca_lassoa_hier <- loo(log_like)
+rm(samps, nus, v_invs, s_invs, betas, log_like, summaries)
+```
+```{r tPCALassobHier, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE}
+jinits <- function(){
+  list(beta=matrix(rnorm(p, 0, 10), p, t), s_inv=runif(t, 0, 100),
+       gamma2=matrix(rgamma(p*t, 1, 1), p, t), lambda2=rexp(t))
+}
+
+dat <- list(Y=Y_sparse, X=X_PCA$X_pca[, 1:p], p=p, H=H_sparse, t=t,
+            tt=tt, N_total=sum(nobs), D=(X_PCA$sdev^2)[1:p])
+
+params <- c("gamma2", "lambda2", "beta", "v_inv", "nu", "s_inv", "log_like")
+
+samps <- foreach(i=1:n_chains, .inorder = FALSE, 
+                 .packages = c("rjags", "random"), .combine = "mcmc.combine", 
+                 .multicombine = TRUE) %dopar% {
+  model.jags <- jags.model("~/spatialModeling/fortData/models/tPCALassobHierFull.txt", 
+                           data=dat, inits=jinits, n.chain=1, n.adapt=n_adapt)
+  update(model.jags, n_burn)
+  result <- coda.samples(model.jags, params, n_iter)
+  return(result)
+} 
+samps <- combine.mcmc(samps)
+n_samps <- dim(samps)[1]
+
+nus <- matrix(0, n_samps, t)
+v_invs <- matrix(0, n_samps, sum(nobs))
+s_invs <- matrix(0, n_samps, t)
+betas <- array(0, dim=c(n_samps, t, p))
+log_like <- matrix(0, n_samps, sum(nobs))
+for(i in 1:t){
+  s_invs[, i] <- samps[, paste("s_inv[", i, "]", sep="")]
+  nus[, i] <- samps[, paste("nu[", i, "]", sep="")]
+  for(j in 1:p){
+    betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")]
+  }
+}               
+for(i in 1:sum(nobs)){
+  log_like[, i] <- log(samps[, paste("log_like[", i, "]", sep="")])
+  v_invs[, i] <- samps[, paste("v_inv[", i, "]", sep="")]
+}
+
+summaries <- processPCASamplesT2(t, p, n_samps, N, betas, s_invs, nus, v_invs,
+                                X_PCA$X_pca[, 1:p], Y_list,
+                                H_list, mu, nobs, n_thin)
+
+y_tilde_mean_tpca_lassob_hier <- summaries$y_tilde_mean 
+y_tilde_sd_tpca_lassob_hier <- summaries$y_tilde_sd
+crps_tpca_lassob_hier <- makeCRPS(summaries$y_tilde, Z_hist, n_samps / n_thin)
+loo_tpca_lassob_hier <- loo(log_like)
+rm(samps, nus, v_invs, s_invs, betas, log_like, summaries)
+```
+
+```{r pPCASSVSHier, cache=TRUE, echo=FALSE, cache.lazy=FALSE, eval=TRUE}
+jinits <- function(){
+  list(s_beta_inv=runif(1, 0, 100), beta=matrix(rnorm(p, 0, 10), p, t),
+       tau_inv=runif(t, 0, 100), s_inv=runif(1, 0, 100))
+}
+
+dat <- list(Y=Y_sparse, X=X_PPCA$X_center, H=H_sparse, p=p, K_hat=X_PPCA$K_hat,
+            tKK=X_PPCA$Lambda, I_p=diag(p), t=t, tt=tt, N_total=sum(nobs))
+
+params <- c("gamma", "beta", "tau2", "s2", "tau2_beta")
+
+samps <- foreach(i=1:n_chains, .inorder = FALSE, 
+                 .packages = c("rjags", "random"), .combine = "mcmc.combine", 
+                 .multicombine = TRUE) %dopar% {
+  model.jags <- jags.model("~/spatialModeling/fortData/models/pPCASSVSHierFull.txt", data=dat,
+                           inits=jinits,
+                           n.chain=1, n.adapt=n_adapt)
+  update(model.jags, n_burn)
+  result <- coda.samples(model.jags, params, n_iter)
+  return(result)
+}
+samps <- combine.mcmc(samps)
+n_samps <- dim(samps)[1]
+
+tau2s <- matrix(0, n_samps, t)
+s2s <- c(samps[, "s2"])
+betas <- array(0, dim=c(n_samps, t, p))
+for(i in 1:t){
+  tau2s[, i] <- samps[, paste("tau2[", i, "]", sep="")]
+  for(j in 1:p){
+    betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")]
+  }
+}               
+
+summaries <- processSamples(t, p, n_samps, N, betas, tau2s, s2s, Y_list, 
+                            H_list, nobs, X_PPCA$X_center, X_PPCA$Lambda, 
+                            diag(p), X_PPCA$K_hat, mu, n_thin)
+
+y_tilde_mean_ppca_ssvs_hier <- summaries$y_tilde_mean
+y_tilde_sd_ppca_ssvs_hier <- summaries$y_tilde_sd
+crps_ppca_ssvs_hier <- makeCRPS(summaries$y_tilde, Z_hist, n_samps / n_thin)
+loo_ppca_ssvs_hier <- loo(matrix(unlist(summaries$log_like), n_samps / n_thin,
+                            sum(nobs), byrow=FALSE))
+rm(samps, summaries, betas, s2s, tau2s)
+```
+```{r pPCALassoHier, cache=TRUE, echo=FALSE, cache.lazy=FALSE, eval=TRUE}
+jinits <- function(){
+  list(beta=matrix(rnorm(p * t, 0, 10), p, t), tau_inv=runif(t, 0, 100), 
+       s_inv=runif(1, 0, 100))
+}
+
+dat <- list(Y=Y_sparse, X=X_PPCA$X_center, H=H_sparse, p=p, K_hat=X_PPCA$K_hat,
+            tKK=X_PPCA$Lambda, I_p=diag(p), t=t, tt=tt, N_total=sum(nobs))
+
+params <- c("gamma", "beta", "tau2", "s2")
+
+samps <- foreach(i=1:n_chains, .inorder = FALSE, 
+                 .packages = c("rjags", "random"), .combine = "mcmc.combine", 
+                 .multicombine = TRUE) %dopar% {
+  model.jags <- jags.model("~/spatialModeling/fortData/models/pPCALassoHierFull.txt",
+                           data=dat, inits=jinits, n.chain=1, n.adapt=n_adapt)
+  update(model.jags, n_burn)
+  result <- coda.samples(model.jags, params, n_iter)
+  return(result)
+}
+samps <- combine.mcmc(samps)
+n_samps <- dim(samps)[1]
+
+tau2s <- matrix(0, n_samps, t)
+s2s <- c(samps[, "s2"])
+betas <- array(0, dim=c(n_samps, t, p))
+for(i in 1:t){
+  tau2s[, i] <- samps[, paste("tau2[", i, "]", sep="")]
+  for(j in 1:p){
+    betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")]
+  }
+}               
+
+summaries <- processSamples(t, p, n_samps, N, betas, tau2s, s2s, Y_list, H_list,
+                             nobs, X_PPCA$X_center,
+                             X_PPCA$Lambda, diag(p),
+                             X_PPCA$K_hat, mu, n_thin)
+
+y_tilde_mean_ppca_lasso_hier <- summaries$y_tilde_mean
+y_tilde_sd_ppca_lasso_hier <- summaries$y_tilde_sd
+crps_ppca_lasso_hier <- makeCRPS(summaries$y_tilde, Z_hist, n_samps / n_thin)
+loo_ppca_lasso_hier <- loo(matrix(unlist(summaries$log_like), 
+                                  n_samps / n_thin, sum(nobs), byrow=FALSE))
+rm(samps, summaries, betas, s2s, tau2s)
+```
+```{r tpPCASSVSHier, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE}
+jinits <- function(){   
+  list(beta=matrix(rnorm(p, 0, 10), p, t), s_inv=runif(1, 0, 100), 
+       tau_inv=runif(t, 0, 100)) 
+} 
+
+dat <- list(Y=Y_sparse, X=X_PPCA$X_center, H=H_sparse, p=p, K_hat=X_PPCA$K_hat,
+            tKK=X_PPCA$Lambda, I_p=diag(p), t=t, tt=tt, N_total=sum(nobs))
+
+params <- c("gamma", "beta", "s2", "tau2_beta", "nu", "v_inv", "log_like",
+            "tau2")
+
+samps <- foreach(i=1:n_chains, .inorder = FALSE, 
+                 .packages = c("rjags", "random"), .combine = "mcmc.combine", 
+                 .multicombine = TRUE) %dopar% {
+  model.jags <- jags.model("~/spatialModeling/fortData/models/tpPCASSVSHierFull.txt",
+                           data=dat, inits=jinits, n.chain=1, n.adapt=n_adapt)
+  update(model.jags, n_burn)
+  result <- coda.samples(model.jags, params, n_iter)
+  return(result)
+}
+samps <- combine.mcmc(samps)
+n_samps <- dim(samps)[1]
+
+nus <- matrix(0, n_samps, t)
+v_invs <- matrix(0, n_samps, sum(nobs))
+s2s <- samps[, paste("s2")]
+tau2s <- matrix(0, n_samps, t)
+betas <- array(0, dim=c(n_samps, t, p))
+log_like <- matrix(0, n_samps, sum(nobs))
+for(i in 1:t){
+  tau2s[, i] <- samps[, paste("tau2[", i, "]", sep="")]
+  nus[, i] <- samps[, paste("nu[", i, "]", sep="")]
+  for(j in 1:p){
+    betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")]
+  }
+}               
+for(i in 1:sum(nobs)){
+  log_like[, i] <- log(samps[, paste("log_like[", i, "]", sep="")]) 
+  v_invs[, i] <- samps[, paste("v_inv[", i, "]", sep="")] 
+}      
+  
+summaries <- processSamplesT(t, p, n_samps, N, betas, tau2s, s2s, nus,
+                             v_invs, Y_list, H_list, nobs, X_PPCA$X_center, 
+                             X_PPCA$Lambda, diag(p), X_PPCA$K_hat, mu, n_thin)
+
+y_tilde_mean_tppca_ssvs_hier <- summaries$y_tilde_mean 
+y_tilde_sd_tppca_ssvs_hier <- summaries$y_tilde_sd
+crps_tppca_ssvs_hier <- makeCRPS(summaries$y_tilde, Z_hist, n_samps / n_thin)
+loo_tppca_ssvs_hier <- loo(log_like)
+rm(samps, nus, v_invs, s2s, tau2s, betas, log_like, summaries)
+```
+```{r tpPCALassoaHier, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE}
+jinits <- function(){
+  list(beta=matrix(rnorm(p, 0, 10), p, t),  s_inv=runif(1, 0, 100),
+       tau_inv=runif(t, 0, 100), gamma2=matrix(rgamma(p*t, 1, 1), p, t),
+       lambda2=rexp(t))
+}
+
+dat <- list(Y=Y_sparse, X=X_PPCA$X_center, H=H_sparse, p=p, K_hat=X_PPCA$K_hat,
+            tKK=X_PPCA$Lambda, I_p=diag(p), t=t, tt=tt, N_total=sum(nobs))
+
+params <- c("gamma2", "lambda2", "beta", "nu", "s2", "tau2", "v_inv",
+            "log_like")
+
+samps <- foreach(i=1:n_chains, .inorder = FALSE, 
+                 .packages = c("rjags", "random"), .combine = "mcmc.combine", 
+                 .multicombine = TRUE) %dopar% {
+  model.jags <- jags.model("~/spatialModeling/fortData/models/tpPCALassoaHierFull.txt", 
+                           data=dat, inits=jinits, n.chain=1, n.adapt=n_adapt)
+  update(model.jags, n_burn)
+  result <- coda.samples(model.jags, params, n_iter)
+  return(result)
+}
+samps <- combine.mcmc(samps)
+n_samps <- dim(samps)[1]
+
+nus <- matrix(0, n_samps, t)
+v_invs <- matrix(0, n_samps, sum(nobs))
+s2s <- samps[, paste("s2")]
+tau2s <- matrix(0, n_samps, t)
+betas <- array(0, dim=c(n_samps, t, p))
+log_like <- matrix(0, n_samps, sum(nobs))
+for(i in 1:t){
+  tau2s[, i] <- samps[, paste("tau2[", i, "]", sep="")]
+  nus[, i] <- samps[, paste("nu[", i, "]", sep="")]
+  for(j in 1:p){
+    betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")]
+  }
+}               
+for(i in 1:sum(nobs)){
+  log_like[, i] <- log(samps[, paste("log_like[", i, "]", sep="")]) 
+  v_invs[, i] <- samps[, paste("v_inv[", i, "]", sep="")]
+}
+ 
+summaries <- processSamplesT(t, p, n_samps, N, betas, tau2s, s2s, nus, v_invs,
+                             Y_list, H_list, nobs, X_PPCA$X_center, 
+                             X_PPCA$Lambda, diag(p), X_PPCA$K_hat, mu, n_thin)
+
+y_tilde_mean_tppca_lassoa_hier <- summaries$y_tilde_mean 
+y_tilde_sd_tppca_lassoa_hier <- summaries$y_tilde_sd
+crps_tppca_lassoa_hier <- makeCRPS(summaries$y_tilde, Z_hist, n_samps / n_thin)
+loo_tppca_lassoa_hier <- loo(log_like)
+rm(samps, nus, v_invs, s2s, tau2s, betas, log_like, summaries)
+```
+```{r tpPCALassobHier, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE}
+jinits <- function(){
+  list(beta=matrix(rnorm(p, 0, 10), p, t),  s_inv=runif(1, 0, 100),
+       tau_inv=runif(t, 0, 100), gamma2=matrix(rgamma(p*t, 1, 1), p, t),
+       lambda2=rexp(t))
+}
+
+dat <- list(Y=Y_sparse, X=X_PPCA$X_center, H=H_sparse, p=p, K_hat=X_PPCA$K_hat,
+            tKK=X_PPCA$Lambda, I_p=diag(p), t=t, tt=tt, N_total=sum(nobs))
+
+params <- c("gamma2", "lambda2", "beta", "nu", "s2", "tau2", "v_inv",
+            "log_like")
+
+samps <- foreach(i=1:n_chains, .inorder = FALSE, 
+                 .packages = c("rjags", "random"), .combine = "mcmc.combine", 
+                 .multicombine = TRUE) %dopar% {
+  model.jags <- jags.model("~/spatialModeling/fortData/models/tpPCALassobHierFull.txt", 
+                           data=dat, inits=jinits, n.chain=1, n.adapt=n_adapt)
+  update(model.jags, n_burn)
+  result <- coda.samples(model.jags, params, n_iter)
+  return(result)
+}
+samps <- combine.mcmc(samps)
+n_samps <- dim(samps)[1]
+
+nus <- matrix(0, n_samps, t)
+v_invs <- matrix(0, n_samps, sum(nobs))
+s2s <- samps[, paste("s2")]
+tau2s <- matrix(0, n_samps, t)
+betas <- array(0, dim=c(n_samps, t, p))
+log_like <- matrix(0, n_samps, sum(nobs))
+for(i in 1:t){
+  tau2s[, i] <- samps[, paste("tau2[", i, "]", sep="")]
+  nus[, i] <- samps[, paste("nu[", i, "]", sep="")]
+  for(j in 1:p){
+    betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")]
+  }
+}               
+for(i in 1:sum(nobs)){
+  log_like[, i] <- log(samps[, paste("log_like[", i, "]", sep="")]) 
+  v_invs[, i] <- samps[, paste("v_inv[", i, "]", sep="")]
+}
+ 
+summaries <- processSamplesT(t, p, n_samps, N, betas, tau2s, s2s, nus, v_invs,
+                             Y_list, H_list, nobs, X_PPCA$X_center,
+                             X_PPCA$Lambda, diag(p), X_PPCA$K_hat, mu, n_thin)
+
+y_tilde_mean_tppca_lassob_hier <- summaries$y_tilde_mean 
+y_tilde_sd_tppca_lassob_hier <- summaries$y_tilde_sd
+crps_tppca_lassob_hier <- makeCRPS(summaries$y_tilde, Z_hist, n_samps / n_thin)
+loo_tppca_lassob_hier <- loo(log_like)
+rm(samps, nus, v_invs, s2s, tau2s, betas, log_like, summaries)
+```
+
+## simulated data results
+
+```{r setupTable, echo=FALSE, include=FALSE, message=FALSE, eval=TRUE}
+# PCR Model
+mspe_pca_ssvs_hier <- mean((y_tilde_mean_pca_ssvs_hier - Z_hist)^2)
+mspe_pca_lasso_hier <- mean((y_tilde_mean_pca_lasso_hier - Z_hist)^2)
+mspe_tpca_ssvs_hier <- mean((y_tilde_mean_tpca_ssvs_hier-Z_hist)^2)
+mspe_tpca_lassoa_hier <- mean((y_tilde_mean_tpca_lassoa_hier-Z_hist)^2)
+mspe_tpca_lassob_hier <- mean((y_tilde_mean_tpca_lassob_hier-Z_hist)^2)
+
+crps_pca_ssvs_hier <- mean(crps_pca_ssvs_hier)
+crps_pca_lasso_hier <- mean(crps_pca_lasso_hier)
+crps_tpca_ssvs_hier <- mean(crps_tpca_ssvs_hier)
+crps_tpca_lassoa_hier <- mean(crps_tpca_lassoa_hier)
+crps_tpca_lassob_hier <- mean(crps_tpca_lassob_hier)
+
+## probabilistic PCA
+mspe_ppca_ssvs_hier <- mean((y_tilde_mean_ppca_ssvs_hier - Z_hist)^2)
+mspe_ppca_lasso_hier <- mean((y_tilde_mean_ppca_lasso_hier - Z_hist)^2)
+mspe_tppca_ssvs_hier <- mean((y_tilde_mean_tppca_ssvs_hier-Z_hist)^2)
+mspe_tppca_lassoa_hier <- mean((y_tilde_mean_tppca_lassoa_hier-Z_hist)^2)
+mspe_tppca_lassob_hier <- mean((y_tilde_mean_tppca_lassob_hier-Z_hist)^2)
+
+crps_ppca_ssvs_hier <- mean(crps_ppca_ssvs_hier)
+crps_ppca_lasso_hier <- mean(crps_ppca_lasso_hier)
+crps_tppca_ssvs_hier <- mean(crps_tppca_ssvs_hier)
+crps_tppca_lassoa_hier <- mean(crps_tppca_lassoa_hier)
+crps_tppca_lassob_hier <- mean(crps_tppca_lassob_hier)
+
+```
+
+## Plot simulation results
+
+```{r simPlot, echo=FALSE, include=FALSE, fig.height=6, fig.width=6, eval=TRUE}
+par(mfrow=c(2, 2), mar=c(1, 3, 0.5, 0.5) + 0.1, oma=c(0, 0, 0, 0) + 0.1)
+ # par(mar=c(0.5, 0.5, 1.75, 0.5) + 0.1, oma=c(0, 0, 0.25, 2.5) + 0.1)
+matplot(locs, matrix(unlist(Z_list_noisy), m, reps/2), type='l',
+        col=adjustcolor("black", alpha.f=0.1),
+        ylim =c(min(unlist(Z_list_noisy)), max(unlist(Z_list_noisy))),
+	main = '', xlab="", xaxt="n", ylab="Simulated temperature")
+mtext("(a)",side=3,line=-1.9,adj=c(0.1),cex=1,col="black")
+
+par(mar=c(1, 0.5, 0.5, 3) + 0.1)
+matplot(locs, matrix(unlist(Z_list_pca), m, reps/2), type='l',
+        col=adjustcolor("black", alpha.f=0.1),
+	main = '', ylim =c(min(unlist(Z_list_noisy)), max(unlist(Z_list_noisy))),
+	xlab="", xaxt="n", yaxt="n", ylab="")
+mtext("(b)",side=3,line=-1.9,adj=c(0.1),cex=1,col="black")
+
+noisy_plot <- makePCA(matrix(unlist(Z_list_noisy), ncol = reps / 2, 
+                       byrow = FALSE))$X_pca[, 1:4]
+noisy_plot[, 1] <- - noisy_plot[, 1]
+
+par(mar=c(1, 3, 0.5, 0.5) + 0.1)
+matplot(locs, noisy_plot, type='l',
+        ylab="Principal Components",  xlab = "location", 
+        main="", ylim =c(min(noisy_plot), max(noisy_plot)))
+mtext("(c)",side=3,line=-1.9,adj=c(0.1),cex=1,col="black")
+
+par(mar=c(1, 0.5, 0.5, 3) + 0.1)
+matplot(locs, makePCA(matrix(unlist(field$Z_list[(reps / 2 + 1):reps]), 
+                       ncol = reps / 2, byrow = FALSE))$X_pca[, 1:4], 
+        type='l', yaxt="n", ylab="", xlab="location",
+	main = "", ylim =c(min(noisy_plot), max(noisy_plot)))
+mtext("(d)",side=3,line=-1.9,adj=c(0.1),cex=1,col="black")
+```
+
+```{r simTablesXtable, echo=FALSE, message=FALSE, eval=TRUE}
+MSPE <- data.frame(cbind(c(mspe_pca_ssvs_hier, mspe_pca_lasso_hier),
+                         c(mspe_ppca_ssvs_hier, mspe_ppca_lasso_hier),
+                         c(mspe_tpca_ssvs_hier, mspe_tpca_lassob_hier),
+                         c(mspe_tppca_ssvs_hier, mspe_tppca_lassob_hier)))
+rownames(MSPE) <- c("SSVS", "LASSO")
+colnames(MSPE) <- c("PCR", "pPCR", "PCR", "pPCR")
+
+CRPS <- data.frame(cbind(c(crps_pca_ssvs_hier, crps_pca_lasso_hier),
+                         c(crps_ppca_ssvs_hier, crps_ppca_lasso_hier), 
+                         c(crps_tpca_ssvs_hier, crps_tpca_lassob_hier),
+                         c(crps_tppca_ssvs_hier, crps_tppca_lassob_hier)))
+rownames(CRPS) <- c("SSVS", "LASSO")
+colnames(CRPS) <- c("PCR", "pPCR", "PCR", "pPCR")
+
+
+loo_ic <- data.frame(cbind(c(loo_pca_ssvs_hier$looic,
+                             loo_pca_lasso_hier$looic),
+                           c(loo_ppca_ssvs_hier$looic,
+                             loo_ppca_lasso_hier$looic), 
+                           c(loo_tpca_ssvs_hier$looic,
+                             loo_tpca_lassob_hier$looic),
+                           c(loo_tppca_ssvs_hier$looic,
+                             loo_tppca_lassob_hier$looic)))
+rownames(loo_ic) <- c("SSVS", "LASSO")
+colnames(loo_ic) <- c("PCR", "pPCR", "PCR", "pPCR")
+addtorow <- list()
+addtorow$pos <- list(0)
+addtorow$command <- c("\\multicolumn{1}{|r|}{} & \\multicolumn{2}{c|}{Gaussian} & \\multicolumn{2}{c|}{Robust} \\\\
+& PCR & pPCR & PCR & pPCR \\\\\n")
+print(xtable(MSPE, digits=4, align=c("|r|rr|rr|")),
+      hline.after=c(-1, 0, nrow(MSPE)), add.to.row=addtorow, file="mspe.tex",
+      floating=FALSE, size="small", include.colnames=FALSE)
+# print(xtable(MSPE, digits=4), file="mspe.tex", floating=FALSE)
+print(xtable(CRPS, digits=1, align=c("|r|rr|rr|")), 
+      hline.after=c(-1, 0, nrow(CRPS)), add.to.row=addtorow, file="crps.tex",
+      floating=FALSE, size="small", include.colnames=FALSE)
+# print(xtable(CRPS, digits=1), file="crps.tex", floating=FALSE)
+print(xtable(loo_ic, digits=0, align=c("|r|rr|rr|")), 
+      hline.after=c(-1, 0, nrow(loo_ic)), add.to.row=addtorow, file="loo.tex",
+      floating=FALSE, size="small", include.colnames=FALSE)
+# print(xtable(loo_ic, digits=0), file="loo.tex", floating=FALSE)
+
+
+simscores <- data.frame(cbind(c(mspe_pca_ssvs_hier, mspe_ppca_ssvs_hier,
+                                mspe_pca_lasso_hier, mspe_ppca_lasso_hier),
+                         c(mspe_tpca_ssvs_hier, mspe_tppca_ssvs_hier,
+                           mspe_tpca_lassob_hier, mspe_tppca_lassob_hier),
+                         c(crps_pca_ssvs_hier, crps_ppca_ssvs_hier,
+                           crps_pca_lasso_hier, crps_ppca_lasso_hier), 
+                         c(crps_tpca_ssvs_hier, crps_tppca_ssvs_hier,
+                           crps_tpca_lassob_hier,  crps_tppca_lassob_hier),
+                         c(loo_pca_ssvs_hier$looic, loo_ppca_ssvs_hier$looic,
+                           loo_pca_lasso_hier$looic, loo_ppca_lasso_hier$looic), 
+                           c(loo_tpca_ssvs_hier$looic, loo_tppca_ssvs_hier$looic,
+                             loo_tpca_lassob_hier$looic, loo_tppca_lassob_hier$looic)
+                         ))
+rownames(simscores) <- c("SSVS PCR", "SSVS pPCR", "LASSO PCR", "LASSO pPCR")
+addtorow <- list()
+addtorow$pos <- list(0)
+addtorow$command <- c("\\multicolumn{1}{r}{} & \\multicolumn{2}{c}{MSPE} & \\multicolumn{2}{c}{CRPS} & \\multicolumn{2}{c}{LOO} \\\\
+ Model & Gaussian & Robust & Gaussian & Robust & Gaussian & Robust \\\\\n")
+print(xtable(simscores, align=c("rrrrrrr"), digits = c(0, 3, 3, 0, 0, 0, 0)),
+      hline.after=c(-1, 0, nrow(simscores)), add.to.row=addtorow, 
+      file="sim-scores.tex",
+      floating=FALSE, size="small", include.colnames=FALSE)
+
+```
+
+
+```{r cleanUp, echo=FALSE, eval=TRUE}
+rm(X, Y_list, Y_sparse, Y_center, H_list, H_sparse, mu, t, X_PCA, X_PPCA, locs)
+n_chains <- 4
+```
+
+\begin{table}
+\centering
+{\small
+\input{./sim-scores}
+}
+\caption{Simulation experiment scores. Smaller values indicate better model performance.}
+\label{tab:simscore}
+\end{table}
+
+## Examine simulation LOO plots of goodness of fit
+
+```{r looPlots, echo=FALSE, message=FALSE, warning=FALSE, include=FALSE, fig.height=6, fig.width=12, eval=TRUE}
+## PCA
+par(mfrow=c(4, 2), mar=c(3, 3, 1, 1) + 0.1, oma=c(0, 0, 0, 0) + 0.1, mgp=c(2, 1, 0))
+plot_k(loo_pca_ssvs_hier$pareto_k, main="SSVS PCR")
+plot_k(loo_pca_lasso_hier$pareto_k, main="LASSO PCR")
+plot_k(loo_tpca_ssvs_hier$pareto_k, main="SSVS robust PCR")
+plot_k(loo_tpca_lassob_hier$pareto_k, main="LASSO robust PCR")
+plot_k(loo_ppca_ssvs_hier$pareto_k, main="SSVS pPCR")
+plot_k(loo_ppca_lasso_hier$pareto_k, main="LASSO pPCR")
+plot_k(loo_tppca_ssvs_hier$pareto_k, main="SSVS robust pPCR")
+plot_k(loo_tppca_lassob_hier$pareto_k, main="LASSO robust pPCR")
+
+```
+
+## Simulation Results
+
+```{r pPCAreconstruction, echo=FALSE, include=FALSE, echo=FALSE, fig.height=6, fig.width=12, eval=TRUE}
+par(mfrow=c(4, 1), mar=c(3, 3, 1, 1) + 0.1, oma=c(0, 0, 0, 0) + 0.1, mgp=c(2, 1, 0))
+matplot(Z_hist_noisy, type = 'l', main = 'Noisy observed data', ylab = "Temperature")
+matplot(Z_hist, type = 'l', main = 'Simulation truth', ylab = "Temperature")
+matplot(y_tilde_mean_tpca_lassob_hier, type = 'l', ylab = "Temperature",
+        main = 'Robust PCR LASSO Reconstruction')
+matplot(y_tilde_mean_tppca_lassob_hier, type = 'l', ylab = "Temperature", 
+        main = 'Robust pPCR LASSO Reconstruction')
+
+```
+
+```{r pPCAreconstruction2, echo=FALSE, include=FALSE, echo=FALSE, fig.height=6, fig.width=12, eval=TRUE}
+par(mfrow=c(1, 2), mar=c(3, 3, 1, 1) + 0.1, oma=c(0, 0, 0, 0) + 0.1, mgp=c(2, 1, 0))
+# matplot(Z_hist_noisy, type = 'l', main = 'Noisy observed data', ylab = "Temperature")
+# matplot(Z_hist, type = 'l', main = 'Simulation truth', ylab = "Temperature")
+plot(NA, type='n', xlim=c(min(y_tilde_mean_tpca_lassob_hier), max(y_tilde_mean_tpca_lassob_hier)), 
+     ylim=c(min(Z_hist), max(Z_hist)), main = 'Robust PCR LASSO Reconstruction', xlab="Predicted", 
+     ylab="Observed")
+for (i in 1:dim(Z_hist)[2]) {
+  points(y_tilde_mean_tpca_lassob_hier[, i] ~ Z_hist[, i], col=adjustcolor("black", alpha.f=0.05))
+}
+abline(0, 1)
+plot(NA, type='n', xlim=c(min(y_tilde_mean_tppca_lassob_hier), max(y_tilde_mean_tppca_lassob_hier)), 
+     ylim=c(min(Z_hist), max(Z_hist)), main = 'Robust pPCR LASSO Reconstruction', xlab="Predicted", 
+     ylab="Observed")
+for (i in 1:dim(Z_hist)[2]) {
+  points(y_tilde_mean_tppca_lassob_hier[, i] ~ Z_hist[, i], col=adjustcolor("black", alpha.f=0.05))
+}
+abline(0, 1)
+```
+
+\begin{figure}
+\centering
+\includegraphics[width=0.95\linewidth]{tipton-06-10-2016_files/figure-latex/pPCAreconstruction2-1.pdf}
+\caption{Simulation truth plotted against predicted temperature for two models.}
+\label{fig:recon}
+\end{figure}
+
+## Load fort data
+
+```{r loadFortData, echo=FALSE, eval=TRUE}
+data(fortFunctions)
+# load("~/spatialModeling/data/fortTempData.RData")
+X.farenheit <- (X.celsius * 9 / 5 + 32)
+
+## Load updated data
+load("~/spatialModeling/data/fortTempDataUpdated.RData")
+
+N <- dim(X.farenheit)[1]
+t <- length(Y.list)
+## Convert updated data to Farenheit
+for (i in 1:t) {
+  Y.list[[i]] <- (Y.list[[i]] * 9 / 5 + 32)
+}
+nobs <- rep(0, t)
+d <- dim(X.farenheit)[2]
+p <- 24
+nobs <- rep(0, t)
+mu <- rep(0, t)
+Y_center <- Y.list
+for(i in 1:t){
+  nobs[i] <- length(Y.list[[i]])
+  mu[i] <- mean(Y.list[[i]])
+  Y_center[[i]] <- Y.list[[i]] - mu[i]
+}
+
+Y_sparse <- unlist(Y_center)
+H_sparse <- unlist(H.list)
+tt <- rep(1:t, nobs)
+n_thin <- 10
+I_t <- array(0, dim=c(t, max(nobs), max(nobs)))
+
+pos_idx <- rep(1, t+1)
+for(i in 2:(t+1)){
+  pos_idx[i] <- pos_idx[i-1] + nobs[i-1];
+}
+
+X_PCA <- makePCA(X.farenheit)
+X_PPCA <- makePPCA(X.farenheit, p)
+```
+
+## Fort data models
+
+```{r PCASSVSHierFort, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE}
+jinits <- function(){
+  list(beta=matrix(rnorm(p, 0, 10), p, t), s_inv=runif(t, 0, 100))
+}
+
+dat <- list(Y=Y_sparse, X=X_PCA$X_pca[, 1:p], p=p, D=c(X_PCA$sdev^2),
+             H=H_sparse, t=t, tt=tt, N_total=sum(nobs)) 
+
+params <- c("gamma", "beta", "s_inv", "tau2_beta")
+
+samps <- foreach(i=1:n_chains, .inorder = FALSE, 
+                 .packages = c("rjags", "random"), .combine = "mcmc.combine", 
+                 .multicombine = TRUE) %dopar% {
+  model.jags <- jags.model("~/spatialModeling/fortData/models/PCASSVSHierFull.txt",
+                           data=dat, inits=jinits, n.chain=1, n.adapt=n_adapt)
+  update(model.jags, n_burn)
+  result <- coda.samples(model.jags, params, n_iter)
+  return(result)
+}
+samps <- combine.mcmc(samps)
+n_samps <- dim(samps)[1]
+
+s_invs <- matrix(0, n_samps, t)
+betas <- array(0, dim=c(n_samps, t, p))
+for(i in 1:t){
+  s_invs[, i] <- samps[, paste("s_inv[", i, "]", sep="")]
+  for(j in 1:p){
+    betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")]
+  }
+}               
+
+summaries <- processPCASamples(t, p, n_samps, N, betas, s_invs,
+                               X_PCA$X_pca[, 1:p], Y.list, H.list, mu, nobs,
+			       n_thin, preds=FALSE)
+
+y_tilde_mean_pca_ssvs_hier_fort <- summaries$y_tilde_mean
+y_tilde_sd_pca_ssvs_hier_fort <- summaries$y_tilde_sd
+loo_pca_ssvs_hier_fort <- loo(matrix(unlist(summaries$log_like),
+                                   n_samps / n_thin, sum(nobs), byrow=FALSE))
+rm(samps, summaries, betas, s_invs)
+```
+```{r PCALassoFortHier, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE}
+jinits <- function(){
+  list(beta=matrix(rnorm(p, 0, 10), p, t), s_inv=runif(t, 0, 100),
+       gamma2=matrix(rgamma(p*t, 1, 1), p, t), lambda2 = rexp(t))
+} 
+
+dat <- list(Y=Y_sparse, X=X_PCA$X_pca[, 1:p], p=p, H=H_sparse, t=t, tt=tt, 
+            N_total=sum(nobs), D=c(X_PCA$sdev^2))
+
+params <- c("beta", "s_inv", "gamma2", "lambda2") 
+
+samps <- foreach(i=1:n_chains, .inorder = FALSE, 
+                 .packages = c("rjags", "random"), .combine = "mcmc.combine", 
+                 .multicombine = TRUE) %dopar% {
+  model.jags <- jags.model("~/spatialModeling/fortData/models/PCALassoHierFull.txt",
+                            data=dat, inits=jinits, n.chain=1, n.adapt=n_adapt)
+  update(model.jags, n_burn)
+  result <- coda.samples(model.jags, params, n_iter)
+  return(result)
+}
+samps <- combine.mcmc(samps)
+n_samps <- dim(samps)[1]
+
+s_invs <- matrix(0, n_samps, t)
+betas <- array(0, dim=c(n_samps, t, p))
+for(i in 1:t){
+  s_invs[, i] <- samps[, paste("s_inv[", i, "]", sep="")]
+  for(j in 1:p){
+    betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")]
+  }
+}               
+
+summaries <- processPCASamples(t, p, n_samps, N, betas, s_invs, 
+                               X_PCA$X_pca[, 1:p], Y.list, H.list,
+                               mu, nobs, n_thin, preds=FALSE)
+
+y_tilde_mean_pca_lasso_hier_fort <- summaries$y_tilde_mean 
+y_tilde_sd_pca_lasso_hier_fort <- summaries$y_tilde_sd
+loo_pca_lasso_hier_fort <- loo(matrix(unlist(summaries$log_like),
+                                       n_samps / n_thin, sum(nobs), byrow=FALSE))
+rm(samps, summaries, betas, s_invs)
+```
+```{r tPCASSVSHierFort, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE}
+jinits <- function(){
+  list(beta=matrix(rnorm(p, 0, 10), p, t), s_inv=runif(t, 0, 100))
+}
+
+dat <- list(Y=Y_sparse, X=X_PCA$X_pca[, 1:p], p=p, D=c(X_PCA$sdev^2),
+            H=H_sparse, t=t, tt=tt, N_total=sum(nobs))
+
+params <- c("gamma", "beta", "s_inv", "tau2_beta", "nu", "v_inv", "log_like")
+
+samps <- foreach(i=1:n_chains, .inorder = FALSE, 
+                 .packages = c("rjags", "random"), .combine = "mcmc.combine", 
+                 .multicombine = TRUE) %dopar% {
+  model.jags <- jags.model("~/spatialModeling/fortData/models/tPCASSVSHierFull.txt",
+                           data=dat, inits=jinits, n.chain=1, n.adapt=n_adapt)
+  update(model.jags, n_burn)
+  result <- coda.samples(model.jags, params, n_iter)
+  return(result)
+}
+samps <- combine.mcmc(samps)
+n_samps <- dim(samps)[1]
+
+nus <- matrix(0, n_samps, t)
+v_invs <- matrix(0, n_samps, sum(nobs))
+s_invs <- matrix(0, n_samps, t)
+betas <- array(0, dim=c(n_samps, t, p))
+log_like <- matrix(0, n_samps, sum(nobs))
+for(i in 1:t){
+  s_invs[, i] <- samps[, paste("s_inv[", i, "]", sep="")]
+  nus[, i] <- samps[, paste("nu[", i, "]", sep="")]
+  for(j in 1:p){
+    betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")]
+  }
+}               
+for(i in 1:sum(nobs)){
+  log_like[, i] <- log(samps[, paste("log_like[", i, "]", sep="")])
+  v_invs[, i] <- samps[, paste("v_inv[", i, "]", sep="")]
+}    
+
+summaries <- processPCASamplesT2(t, p, n_samps, N, betas, s_invs, nus, v_invs,
+                                X_PCA$X_pca[, 1:p], Y.list, H.list, mu, nobs,
+  			n_thin, preds=FALSE)
+
+y_tilde_mean_tpca_ssvs_hier_fort <- summaries$y_tilde_mean 
+y_tilde_sd_tpca_ssvs_hier_fort <- summaries$y_tilde_sd
+loo_tpca_ssvs_hier_fort <- loo(log_like)
+rm(samps, nus, v_invs, s_invs, betas, log_like, summaries)
+```
+```{r tPCALassoaHierFort, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE}
+jinits <- function(){
+  list(beta=matrix(rnorm(p, 0, 10), p, t), s_inv=runif(t, 0, 100),
+       gamma2=matrix(rgamma(p*t, 1, 1), p, t), lambda2=rexp(t))
+}
+
+dat <- list(Y=Y_sparse, X=makePCA(X.farenheit)$X_pca[, 1:p], p=p, H=H_sparse, t=t,
+            tt=tt, N_total=sum(nobs), D=(makePCA(X.farenheit)$sdev^2)[1:p])
+
+params <- c("gamma2", "lambda2", "beta", "v_inv", "nu", "s_inv", "log_like")
+
+samps <- foreach(i=1:n_chains, .inorder = FALSE, 
+                 .packages = c("rjags", "random"), .combine = "mcmc.combine", 
+                 .multicombine = TRUE) %dopar% {
+  model.jags <- jags.model("~/spatialModeling/fortData/models/tPCALassoaHierFull.txt", 
+                           data=dat, inits=jinits, n.chain=1, n.adapt=n_adapt)
+  update(model.jags, n_burn)
+  result <- coda.samples(model.jags, params, n_iter)
+  return(result)
+}
+samps <- combine.mcmc(samps)
+n_samps <- dim(samps)[1]
+
+nus <- matrix(0, n_samps, t)
+v_invs <- matrix(0, n_samps, sum(nobs))
+s_invs <- matrix(0, n_samps, t)
+betas <- array(0, dim=c(n_samps, t, p))
+log_like <- matrix(0, n_samps, sum(nobs))
+for(i in 1:t){
+  s_invs[, i] <- samps[, paste("s_inv[", i, "]", sep="")]
+  nus[, i] <- samps[, paste("nu[", i, "]", sep="")]
+  for(j in 1:p){
+    betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")]
+  }
+}               
+for(i in 1:sum(nobs)){
+  log_like[, i] <- log(samps[, paste("log_like[", i, "]", sep="")])
+  v_invs[, i] <- samps[, paste("v_inv[", i, "]", sep="")]
+}
+
+summaries <- processPCASamplesT2(t, p, n_samps, N, betas, s_invs, nus, v_invs,
+                                X_PCA$X_pca[, 1:p], Y.list, H.list, mu, nobs,
+				n_thin, preds=FALSE)
+
+y_tilde_mean_tpca_lassoa_hier_fort <- summaries$y_tilde_mean 
+y_tilde_sd_tpca_lassoa_hier_fort <- summaries$y_tilde_sd
+loo_tpca_lassoa_hier_fort <- loo(log_like)
+rm(samps, nus, v_invs, s_invs, betas, log_like, summaries)
+```
+```{r tPCALassobHierFort, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE}
+jinits <- function(){
+  list(beta=matrix(rnorm(p, 0, 10), p, t), s_inv=runif(t, 0, 100),
+       gamma2=matrix(rgamma(p*t, 1, 1), p, t), lambda2 = rexp(t))
+}
+
+dat <- list(Y=Y_sparse, X=X_PCA$X_pca[, 1:p], p=p, H=H_sparse, t=t,
+            tt=tt, N_total=sum(nobs), D=(X_PCA$sdev^2)[1:p])
+
+params <- c("gamma2", "lambda2", "beta", "v_inv", "nu", "s_inv", "log_like")
+ 
+samps <- foreach(i=1:n_chains, .inorder = FALSE, 
+                 .packages = c("rjags", "random"), .combine = "mcmc.combine", 
+                 .multicombine = TRUE) %dopar% {
+  model.jags <- jags.model("~/spatialModeling/fortData/models/tPCALassobHierFull.txt", 
+                           data=dat, inits=jinits, n.chain=1, n.adapt=n_adapt)
+  update(model.jags, n_burn)
+  result <- coda.samples(model.jags, params, n_iter)
+  return(result)
+}
+samps <- combine.mcmc(samps)
+n_samps <- dim(samps)[1]
+
+nus <- matrix(0, n_samps, t)
+v_invs <- matrix(0, n_samps, sum(nobs))
+s_invs <- matrix(0, n_samps, t)
+betas <- array(0, dim=c(n_samps, t, p))
+log_like <- matrix(0, n_samps, sum(nobs))
+for(i in 1:t){
+  s_invs[, i] <- samps[, paste("s_inv[", i, "]", sep="")]
+  nus[, i] <- samps[, paste("nu[", i, "]", sep="")]
+  for(j in 1:p){
+    betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")]
+  }
+}               
+for(i in 1:sum(nobs)){
+  log_like[, i] <- log(samps[, paste("log_like[", i, "]", sep="")])
+  v_invs[, i] <- samps[, paste("v_inv[", i, "]", sep="")]
+}
+
+summaries <- processPCASamplesT2(t, p, n_samps, N, betas, s_invs, nus, v_invs,
+                                X_PCA$X_pca[, 1:p], Y.list, H.list, mu, nobs,
+				n_thin, preds=FALSE)
+
+y_tilde_mean_tpca_lassob_hier_fort <- summaries$y_tilde_mean 
+y_tilde_sd_tpca_lassob_hier_fort <- summaries$y_tilde_sd
+loo_tpca_lassob_hier_fort <- loo(log_like)
+rm(samps, nus, v_invs, s_invs, betas, log_like, summaries)
+```
+
+```{r pPCASSVSHierFort, cache=TRUE, echo=FALSE, cache.lazy=FALSE, eval=TRUE}
+jinits <- function(){
+  list(s_beta_inv=runif(1, 0, 100), beta=matrix(rnorm(p, 0, 10), p, t),
+       tau_inv=runif(t, 0, 100), s_inv=runif(1, 0, 100))
+}
+
+dat <- list(Y=Y_sparse, X=X_PPCA$X_center, H=H_sparse, p=p, K_hat=X_PPCA$K_hat,
+             tKK=X_PPCA$Lambda, I_p=diag(p), t=t, tt=tt, N_total=sum(nobs))
+
+params <- c("gamma", "beta", "tau2", "s2", "tau2_beta")
+
+samps <- foreach(i=1:n_chains, .inorder = FALSE, 
+                 .packages = c("rjags", "random"), .combine = "mcmc.combine", 
+                 .multicombine = TRUE) %dopar% {
+  model.jags <- jags.model("~/spatialModeling/fortData/models/pPCASSVSHierFull.txt",
+                           data=dat, inits=jinits, n.chain=1, n.adapt=n_adapt)
+  update(model.jags, n_burn)
+  result <- coda.samples(model.jags, params, n_iter)
+  return(result)
+}
+samps <- combine.mcmc(samps)
+n_samps <- dim(samps)[1]
+
+tau2s <- matrix(0, n_samps, t)
+s2s <- c(samps[, "s2"])
+betas <- array(0, dim=c(n_samps, t, p))
+for(i in 1:t){
+  tau2s[, i] <- samps[, paste("tau2[", i, "]", sep="")]
+  for(j in 1:p){
+    betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")]
+  }
+}               
+
+summaries <- processSamples(t, p, n_samps, N, betas, tau2s, s2s, Y.list, H.list,
+                            nobs, X_PPCA$X_center, X_PPCA$Lambda, diag(p),
+                            X_PPCA$K_hat, mu, n_thin, preds=FALSE)
+
+y_tilde_mean_ppca_ssvs_hier_fort <- summaries$y_tilde_mean
+y_tilde_sd_ppca_ssvs_hier_fort <- summaries$y_tilde_sd
+loo_ppca_ssvs_hier_fort <- loo(matrix(unlist(summaries$log_like),
+                                     n_samps / n_thin, sum(nobs), byrow=FALSE))
+rm(samps, summaries, betas, s2s, tau2s)
+```
+```{r pPCALassoHierFort, cache=TRUE, echo=FALSE, cache.lazy=FALSE, eval=TRUE}
+jinits <- function(){ 
+  list(beta=matrix(rnorm(t*p, 0, 10), p, t), tau_inv=runif(t, 0, 100), 
+       s_inv=dunif(1, 0, 100))
+}
+
+dat <- list(Y=Y_sparse, X=X_PPCA$X_center, H=H_sparse, p=p, K_hat=X_PPCA$K_hat,
+            tKK=X_PPCA$Lambda, I_p=diag(p), t=t, tt=tt, N_total=sum(nobs))
+
+params <- c("gamma", "beta", "tau2", "s2")
+
+samps <- foreach(i=1:n_chains, .inorder = FALSE, 
+                 .packages = c("rjags", "random"), .combine = "mcmc.combine", 
+                 .multicombine = TRUE) %dopar% {
+  model.jags <- jags.model("~/spatialModeling/fortData/models/pPCALassoHierFull.txt",
+                           data=dat, inits=jinits, n.chain=1, n.adapt=n_adapt)
+  update(model.jags, n_burn)
+  result <- coda.samples(model.jags, params, n_iter)
+  return(result)
+}
+samps <- combine.mcmc(samps)
+n_samps <- dim(samps)[1]
+
+tau2s <- matrix(0, n_samps, t)
+s2s <- c(samps[, "s2"])
+betas <- array(0, dim=c(n_samps, t, p))
+for(i in 1:t){
+  tau2s[, i] <- samps[, paste("tau2[", i, "]", sep="")]
+  for(j in 1:p){
+    betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")]
+  }
+}               
+
+summaries <- processSamples(t, p, n_samps, N, betas, tau2s, s2s, Y.list, H.list,
+                            nobs, X_PPCA$X_center, X_PPCA$Lambda, diag(p),
+                            X_PPCA$K_hat, mu, n_thin, preds=FALSE)
+
+y_tilde_mean_ppca_lasso_hier_fort <- summaries$y_tilde_mean
+y_tilde_sd_ppca_lasso_hier_fort <- summaries$y_tilde_sd
+loo_ppca_lasso_hier_fort <- loo(matrix(unlist(summaries$log_like),
+                                       n_samps / n_thin, sum(nobs), byrow=FALSE))
+rm(samps, summaries, betas, s2s, tau2s)
+```
+```{r tpPCASSVSHierFort, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE}
+jinits <- function(){   
+  list(beta=matrix(rnorm(p, 0, 10), p, t), s_inv=runif(1, 0, 100), 
+       tau_inv=runif(t, 0, 100)) }
+
+dat <- list(Y=Y_sparse, X=X_PPCA$X_center, H=H_sparse, p=p, K_hat=X_PPCA$K_hat,
+            tKK=X_PPCA$Lambda, I_p=diag(p), t=t, tt=tt, N_total=sum(nobs))
+
+params <- c("gamma", "beta", "s2", "tau2_beta", "nu", "v_inv", "log_like",
+            "tau2")
+
+samps <- foreach(i=1:n_chains, .inorder = FALSE, 
+                 .packages = c("rjags", "random"), .combine = "mcmc.combine", 
+                 .multicombine = TRUE) %dopar% {
+  model.jags <- jags.model("~/spatialModeling/fortData/models/tpPCASSVSHierFull.txt",
+                           data=dat, inits=jinits, n.chain=1, n.adapt=n_adapt)
+  update(model.jags, n_burn)
+  result <- coda.samples(model.jags, params, n_iter)
+  return(result)
+}
+samps <- combine.mcmc(samps)
+n_samps <- dim(samps)[1]
+
+nus <- matrix(0, n_samps, t)
+v_invs <- matrix(0, n_samps, sum(nobs))
+s2s <- samps[, paste("s2")]
+tau2s <- matrix(0, n_samps, t)
+betas <- array(0, dim=c(n_samps, t, p))
+log_like <- matrix(0, n_samps, sum(nobs))
+for(i in 1:t){
+  tau2s[, i] <- samps[, paste("tau2[", i, "]", sep="")]
+  nus[, i] <- samps[, paste("nu[", i, "]", sep="")]
+  for(j in 1:p){
+    betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")]
+  }
+}               
+for(i in 1:sum(nobs)){
+  log_like[, i] <- log(samps[, paste("log_like[", i, "]", sep="")]) 
+  v_invs[, i] <- samps[, paste("v_inv[", i, "]", sep="")]
+}    
+ 
+summaries <- processSamplesT(t, p, n_samps, N, betas, tau2s, s2s, nus,
+                             v_invs, Y.list, H.list, nobs, X_PPCA$X_center, 
+                             X_PPCA$Lambda, diag(p), X_PPCA$K_hat, mu, n_thin,
+                             preds=FALSE)
+
+y_tilde_mean_tppca_ssvs_hier_fort <- summaries$y_tilde_mean 
+y_tilde_sd_tppca_ssvs_hier_fort <- summaries$y_tilde_sd
+loo_tppca_ssvs_hier_fort <- loo(log_like)
+rm(samps, nus, v_invs, s2s, tau2s, betas, log_like, summaries)
+```
+```{r tpPCALassoaHierFort, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE}
+jinits <- function(){
+  list(beta=matrix(rnorm(p, 0, 10), p, t),  s_inv=runif(1, 0, 100),
+       tau_inv=runif(t, 0, 100), gamma2=matrix(rgamma(p*t, 1, 1), p, t),
+       lambda2=rexp(t))
+}
+
+dat <- list(Y=Y_sparse, X=X_PPCA$X_center, H=H_sparse, p=p, K_hat=X_PPCA$K_hat,
+            tKK=X_PPCA$Lambda, I_p=diag(p), t=t, tt=tt, N_total=sum(nobs))
+
+params <- c("gamma2", "lambda2", "beta", "nu", "s2", "tau2", "v_inv",
+            "log_like")
+
+samps <- foreach(i=1:n_chains, .inorder = FALSE, 
+                 .packages = c("rjags", "random"), .combine = "mcmc.combine", 
+                 .multicombine = TRUE) %dopar% {
+  model.jags <- jags.model("~/spatialModeling/fortData/models/tpPCALassoaHierFull.txt", 
+                           data=dat, inits=jinits, n.chain=1, n.adapt=n_adapt)
+  update(model.jags, n_burn)
+  result <- coda.samples(model.jags, params, n_iter)
+  return(result)
+}
+samps <- combine.mcmc(samps)
+n_samps <- dim(samps)[1]
+
+nus <- matrix(0, n_samps, t)
+v_invs <- matrix(0, n_samps, sum(nobs))
+s2s <- samps[, paste("s2")]
+tau2s <- matrix(0, n_samps, t)
+betas <- array(0, dim=c(n_samps, t, p))
+log_like <- matrix(0, n_samps, sum(nobs))
+for(i in 1:t){
+  tau2s[, i] <- samps[, paste("tau2[", i, "]", sep="")]
+  nus[, i] <- samps[, paste("nu[", i, "]", sep="")]
+  for(j in 1:p){
+    betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")]
+  }
+}               
+for(i in 1:sum(nobs)){
+  log_like[, i] <- log(samps[, paste("log_like[", i, "]", sep="")]) 
+  v_invs[, i] <- samps[, paste("v_inv[", i, "]", sep="")]
+}
+ 
+summaries <- processSamplesT(t, p, n_samps, N, betas, tau2s, s2s, nus, v_invs,
+                             Y.list, H.list, nobs, X_PPCA$X_center, 
+                             X_PPCA$Lambda, diag(p), X_PPCA$K_hat, mu, n_thin,
+                             preds=FALSE)
+
+y_tilde_mean_tppca_lassoa_hier_fort <- summaries$y_tilde_mean 
+y_tilde_sd_tppca_lassoa_hier_fort <- summaries$y_tilde_sd
+loo_tppca_lassoa_hier_fort <- loo(log_like)
+rm(samps, nus, v_invs, s2s, tau2s, betas, log_like, summaries)
+```
+```{r tpPCALassobHierFort, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE}
+jinits <- function(){
+  list(beta=matrix(rnorm(p, 0, 10), p, t),  s_inv=runif(1, 0, 100),
+       tau_inv=runif(t, 0, 100), gamma2=matrix(rgamma(p*t, 1, 1), p, t),
+       lambda2=rexp(t))
+}
+
+dat <- list(Y=Y_sparse, X=X_PPCA$X_center, H=H_sparse, p=p, K_hat=X_PPCA$K_hat,
+            tKK=X_PPCA$Lambda, I_p=diag(p), t=t, tt=tt, N_total=sum(nobs))
+
+params <- c("gamma2", "lambda2", "beta", "nu", "s2", "tau2", "v_inv",
+            "log_like")
+
+samps <- foreach(i=1:n_chains, .inorder = FALSE, 
+                 .packages = c("rjags", "random"), .combine = "mcmc.combine", 
+                 .multicombine = TRUE) %dopar% {
+  model.jags <- jags.model("~/spatialModeling/fortData/models/tpPCALassobHierFull.txt", 
+                           data=dat, inits=jinits, n.chain=1, n.adapt=n_adapt)
+  update(model.jags, n_burn)
+  result <- coda.samples(model.jags, params, n_iter)
+  return(result)
+}
+samps <- combine.mcmc(samps)
+n_samps <- dim(samps)[1]
+
+nus <- matrix(0, n_samps, t)
+v_invs <- matrix(0, n_samps, sum(nobs))
+s2s <- samps[, paste("s2")]
+tau2s <- matrix(0, n_samps, t)
+betas <- array(0, dim=c(n_samps, t, p))
+log_like <- matrix(0, n_samps, sum(nobs))
+for(i in 1:t){
+  tau2s[, i] <- samps[, paste("tau2[", i, "]", sep="")]
+  nus[, i] <- samps[, paste("nu[", i, "]", sep="")]
+  for(j in 1:p){
+    betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")]
+  }
+}               
+for(i in 1:sum(nobs)){
+  log_like[, i] <- log(samps[, paste("log_like[", i, "]", sep="")])
+  v_invs[, i] <- samps[, paste("v_inv[", i, "]", sep="")]
+}
+ 
+summaries <- processSamplesT(t, p, n_samps, N, betas, tau2s, s2s, nus, v_invs,
+                             Y.list, H.list, nobs, X_PPCA$X_center,
+                             X_PPCA$Lambda, diag(p), X_PPCA$K_hat, mu, n_thin,
+                             preds=FALSE)
+
+y_tilde_mean_tppca_lassob_hier_fort <- summaries$y_tilde_mean 
+y_tilde_sd_tppca_lassob_hier_fort <- summaries$y_tilde_sd
+loo_tppca_lassob_hier_fort <- loo(log_like)
+rm(samps, nus, v_invs, s2s, tau2s, betas, log_like, summaries)
+```
+
+
+## Fort data model fits
+
+```{r simTablesFort, echo=FALSE, message=FALSE, eval=TRUE}
+loo_preds_fort <- data.frame(looic= NA)
+loo_ic_fort <- data.frame(cbind(c(loo_pca_ssvs_hier_fort$looic,
+                                  loo_pca_lasso_hier_fort$looic),
+                                c(loo_ppca_ssvs_hier_fort$looic,
+                                  loo_ppca_lasso_hier_fort$looic), 
+                                c(loo_tpca_ssvs_hier_fort$looic,
+                                  loo_tpca_lassob_hier_fort$looic),
+                                c(loo_tppca_ssvs_hier_fort$looic,
+                                  loo_tppca_lassob_hier_fort$looic)))
+rownames(loo_ic_fort) <- c("SSVS", "LASSO")
+colnames(loo_ic_fort) <- c("PCR", "pPCR", "PCR", "pPCR")
+addtorow$pos <- list(0)
+addtorow$command <- c("\\multicolumn{1}{|r|}{} & \\multicolumn{2}{c|}{Gaussian} & \\multicolumn{2}{c|}{Robust} \\\\
+& PCR & pPCR & PCR & pPCR \\\\\n")
+print(xtable(loo_ic_fort, digits=0, align=c("|r|rr|rr|")),
+      hline.after=c(-1, 0, nrow(loo_ic_fort)), add.to.row=addtorow, 
+      file="loofort.tex", floating=FALSE, size="small", include.colnames=FALSE)
+```
+
+\begin{table}
+\centering
+\input{./fort-scores}
+\caption{Fort historical reconstruction scores. Smaller values indicate better model performance}
+\label{tab:fort}
+\end{table}
+
+## Remove observer data outlier
+
+```{r fortDataRemoveOutlier, echo=FALSE, eval=TRUE}
+# data(fortFunctions)
+
+mu_outlier <- mu
+nobs_outlier <- nobs
+outlier_idx <- which(loo_pca_ssvs_hier_fort$pareto_k == max(loo_pca_ssvs_hier_fort$pareto_k))
+nobs_outlier[tt[outlier_idx]]<- nobs_outlier[tt[outlier_idx]] - 1
+Y.list.outlier <- Y.list
+Y_sparse_outlier <- Y_sparse
+H.list.outlier <- H.list
+tt_outlier <- tt[-outlier_idx]
+
+
+Y.list.outlier[[tt[outlier_idx]]] <- Y.list.outlier[[tt[outlier_idx]]][-which(Y.list.outlier[[tt[outlier_idx]]] == min(Y.list.outlier[[tt[outlier_idx]]]))]
+mu_outlier[tt[outlier_idx]] <- mean(Y.list.outlier[[tt[outlier_idx]]])
+H.list.outlier[[tt[outlier_idx]]] <- H.list.outlier[[tt[outlier_idx]]][-which(Y.list.outlier[[tt[outlier_idx]]] == min(Y.list.outlier[[tt[outlier_idx]]]))]
+Y_sparse_outlier <- Y_sparse[-outlier_idx]
+H_sparse_outlier <- H_sparse[-outlier_idx]
+
+```
+
+## Observer data model fits with outlier removed
+
+```{r PCASSVSHierFortOutlier, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE}
+jinits <- function(){
+  list(beta=matrix(rnorm(p, 0, 10), p, t), s_inv=runif(t, 0, 100))
+}
+
+dat <- list(Y=Y_sparse_outlier, X=X_PCA$X_pca[, 1:p], p=p, D=c(X_PCA$sdev^2),
+             H=H_sparse_outlier, t=t, tt=tt_outlier, N_total=length(tt_outlier)) 
+
+params <- c("gamma", "beta", "s_inv", "tau2_beta")
+
+samps <- foreach(i=1:n_chains, .inorder = FALSE, 
+                 .packages = c("rjags", "random"), .combine = "mcmc.combine", 
+                 .multicombine = TRUE) %dopar% {
+  model.jags <- jags.model("~/spatialModeling/fortData/models/PCASSVSHierFull.txt",
+                           data=dat, inits=jinits, n.chain=1, n.adapt=n_adapt)
+  update(model.jags, n_burn)
+  result <- coda.samples(model.jags, params, n_iter)
+  return(result)
+}
+samps <- combine.mcmc(samps)
+n_samps <- dim(samps)[1]
+
+s_invs <- matrix(0, n_samps, t)
+betas <- array(0, dim=c(n_samps, t, p))
+for(i in 1:t){
+  s_invs[, i] <- samps[, paste("s_inv[", i, "]", sep="")]
+  for(j in 1:p){
+    betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")]
+  }
+}               
+
+summaries <- processPCASamples(t, p, n_samps, N, betas, s_invs,
+                               X_PCA$X_pca[, 1:p], Y.list.outlier, 
+                               H.list.outlier,  mu_outlier, nobs_outlier, n_thin, 
+                               preds=FALSE)
+
+y_tilde_mean_pca_ssvs_hier_fort_outlier <- summaries$y_tilde_mean
+y_tilde_sd_pca_ssvs_hier_fort_outlier <- summaries$y_tilde_sd
+loo_pca_ssvs_hier_fort_outlier <- loo(matrix(unlist(summaries$log_like),
+                                   n_samps / n_thin, sum(nobs_outlier), byrow=FALSE))
+rm(samps, summaries, betas, s_invs)
+```
+```{r PCALassoFortOutlierHier, eval=TRUE, cache=TRUE, echo=FALSE, eval=TRUE}
+jinits <- function(){
+  list(beta=matrix(rnorm(p, 0, 10), p, t), s_inv=runif(t, 0, 100),
+       gamma2=matrix(rgamma(p*t, 1, 1), p, t), lambda2 = rexp(t))
+} 
+
+dat <- list(Y=Y_sparse_outlier, X=X_PCA$X_pca[, 1:p], p=p, H=H_sparse_outlier, 
+            t=t, tt=tt_outlier, N_total=length(tt_outlier), D=c(X_PCA$sdev^2))
+
+params <- c("beta", "s_inv", "gamma2", "lambda2") 
+
+samps <- foreach(i=1:n_chains, .inorder = FALSE, 
+                 .packages = c("rjags", "random"), .combine = "mcmc.combine", 
+                 .multicombine = TRUE) %dopar% {
+  model.jags <- jags.model("~/spatialModeling/fortData/models/PCALassoHierFull.txt",
+                            data=dat, inits=jinits, n.chain=1, n.adapt=n_adapt)
+  update(model.jags, n_burn)
+  result <- coda.samples(model.jags, params, n_iter)
+  return(result)
+}
+samps <- combine.mcmc(samps)
+n_samps <- dim(samps)[1]
+
+s_invs <- matrix(0, n_samps, t)
+betas <- array(0, dim=c(n_samps, t, p))
+for(i in 1:t){
+  s_invs[, i] <- samps[, paste("s_inv[", i, "]", sep="")]
+  for(j in 1:p){
+    betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")]
+  }
+}               
+
+summaries <- processPCASamples(t, p, n_samps, N, betas, s_invs, 
+                               X_PCA$X_pca[, 1:p], Y.list.outlier, 
+                               H.list.outlier, mu_outlier, nobs_outlier, n_thin, 
+                               preds=FALSE)
+
+y_tilde_mean_pca_lasso_hier_fort_outlier <- summaries$y_tilde_mean 
+y_tilde_sd_pca_lasso_hier_fort_outlier <- summaries$y_tilde_sd
+loo_pca_lasso_hier_fort_outlier <- loo(matrix(unlist(summaries$log_like),
+                                       n_samps / n_thin, sum(nobs_outlier), byrow=FALSE))
+rm(samps, summaries, betas, s_invs)
+```
+```{r tPCASSVSHierFortOutlier, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE}
+jinits <- function(){
+  list(beta=matrix(rnorm(p, 0, 10), p, t), s_inv=runif(t, 0, 100))
+}
+
+dat <- list(Y=Y_sparse_outlier, X=X_PCA$X_pca[, 1:p], p=p, D=c(X_PCA$sdev^2),
+            H=H_sparse_outlier, t=t, tt=tt_outlier, N_total=length(tt_outlier))
+
+params <- c("gamma", "beta", "s_inv", "tau2_beta", "nu", "v_inv", "log_like")
+
+samps <- foreach(i=1:n_chains, .inorder = FALSE, 
+                 .packages = c("rjags", "random"), .combine = "mcmc.combine", 
+                 .multicombine = TRUE) %dopar% {
+  model.jags <- jags.model("~/spatialModeling/fortData/models/tPCASSVSHierFull.txt",
+                           data=dat, inits=jinits, n.chain=1, n.adapt=n_adapt)
+  update(model.jags, n_burn)
+  result <- coda.samples(model.jags, params, n_iter)
+  return(result)
+}
+samps <- combine.mcmc(samps)
+n_samps <- dim(samps)[1]
+
+nus <- matrix(0, n_samps, t)
+v_invs <- matrix(0, n_samps, sum(nobs_outlier))
+s_invs <- matrix(0, n_samps, t)
+betas <- array(0, dim=c(n_samps, t, p))
+log_like <- matrix(0, n_samps, sum(nobs_outlier))
+for(i in 1:t){
+  s_invs[, i] <- samps[, paste("s_inv[", i, "]", sep="")]
+  nus[, i] <- samps[, paste("nu[", i, "]", sep="")]
+  for(j in 1:p){
+    betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")]
+  }
+}               
+for(i in 1:sum(nobs_outlier)){
+  log_like[, i] <- log(samps[, paste("log_like[", i, "]", sep="")])
+  v_invs[, i] <- samps[, paste("v_inv[", i, "]", sep="")]
+}    
+
+summaries <- processPCASamplesT2(t, p, n_samps, N, betas, s_invs, nus, v_invs,
+                                X_PCA$X_pca[, 1:p], Y.list.outlier,
+                                H.list.outlier, mu_outlier, nobs_outlier, n_thin, 
+                                preds=FALSE)
+
+y_tilde_mean_tpca_ssvs_hier_fort_outlier <- summaries$y_tilde_mean 
+y_tilde_sd_tpca_ssvs_hier_fort_outlier <- summaries$y_tilde_sd
+loo_tpca_ssvs_hier_fort_outlier <- loo(log_like)
+rm(samps, nus, v_invs, s_invs, betas, log_like, summaries)
+```
+```{r tPCALassobHierFortOutlier, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE}
+jinits <- function(){
+  list(beta=matrix(rnorm(p, 0, 10), p, t), s_inv=runif(t, 0, 100),
+       gamma2=matrix(rgamma(p*t, 1, 1), p, t), lambda2 = rexp(t))
+}
+
+dat <- list(Y=Y_sparse_outlier, X=X_PCA$X_pca[, 1:p], p=p, H=H_sparse_outlier, t=t,
+            tt=tt_outlier, N_total=length(tt_outlier), D=(X_PCA$sdev^2)[1:p])
+
+params <- c("gamma2", "lambda2", "beta", "v_inv", "nu", "s_inv", "log_like")
+ 
+samps <- foreach(i=1:n_chains, .inorder = FALSE, 
+                 .packages = c("rjags", "random"), .combine = "mcmc.combine", 
+                 .multicombine = TRUE) %dopar% {
+  model.jags <- jags.model("~/spatialModeling/fortData/models/tPCALassobHierFull.txt", 
+                           data=dat, inits=jinits, n.chain=1, n.adapt=n_adapt)
+  update(model.jags, n_burn)
+  result <- coda.samples(model.jags, params, n_iter)
+  return(result)
+}
+samps <- combine.mcmc(samps)
+n_samps <- dim(samps)[1]
+
+nus <- matrix(0, n_samps, t)
+v_invs <- matrix(0, n_samps, sum(nobs_outlier))
+s_invs <- matrix(0, n_samps, t)
+betas <- array(0, dim=c(n_samps, t, p))
+log_like <- matrix(0, n_samps, sum(nobs_outlier))
+for(i in 1:t){
+  s_invs[, i] <- samps[, paste("s_inv[", i, "]", sep="")]
+  nus[, i] <- samps[, paste("nu[", i, "]", sep="")]
+  for(j in 1:p){
+    betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")]
+  }
+}               
+for(i in 1:sum(nobs_outlier)){
+  log_like[, i] <- log(samps[, paste("log_like[", i, "]", sep="")])
+  v_invs[, i] <- samps[, paste("v_inv[", i, "]", sep="")]
+}
+
+summaries <- processPCASamplesT2(t, p, n_samps, N, betas, s_invs, nus, v_invs,
+                                X_PCA$X_pca[, 1:p], Y.list.outlier, H.list.outlier, mu_outlier, nobs_outlier,
+				n_thin, preds=FALSE)
+
+y_tilde_mean_tpca_lassob_hier_fort_outlier <- summaries$y_tilde_mean 
+y_tilde_sd_tpca_lassob_hier_fort_outlier <- summaries$y_tilde_sd
+loo_tpca_lassob_hier_fort_outlier <- loo(log_like)
+rm(samps, nus, v_invs, s_invs, betas, log_like, summaries)
+```
+
+```{r pPCASSVSHierFortOutlier, cache=TRUE, echo=FALSE, cache.lazy=FALSE, eval=TRUE}
+jinits <- function(){
+  list(s_beta_inv=runif(1, 0, 100), beta=matrix(rnorm(p, 0, 10), p, t),
+       tau_inv=runif(t, 0, 100), s_inv=runif(1, 0, 100))
+}
+
+dat <- list(Y=Y_sparse_outlier, X=X_PPCA$X_center, H=H_sparse_outlier, p=p, 
+            K_hat=X_PPCA$K_hat, tKK=X_PPCA$Lambda, I_p=diag(p), t=t, 
+            tt=tt_outlier, N_total=length(tt_outlier))
+
+params <- c("gamma", "beta", "tau2", "s2", "tau2_beta")
+
+samps <- foreach(i=1:n_chains, .inorder = FALSE, 
+                 .packages = c("rjags", "random"), .combine = "mcmc.combine", 
+                 .multicombine = TRUE) %dopar% {
+  model.jags <- jags.model("~/spatialModeling/fortData/models/pPCASSVSHierFull.txt",
+                           data=dat, inits=jinits, n.chain=1, n.adapt=n_adapt)
+  update(model.jags, n_burn)
+  result <- coda.samples(model.jags, params, n_iter)
+  return(result)
+}
+samps <- combine.mcmc(samps)
+n_samps <- dim(samps)[1]
+
+tau2s <- matrix(0, n_samps, t)
+s2s <- c(samps[, "s2"])
+betas <- array(0, dim=c(n_samps, t, p))
+for(i in 1:t){
+  tau2s[, i] <- samps[, paste("tau2[", i, "]", sep="")]
+  for(j in 1:p){
+    betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")]
+  }
+}               
+
+summaries <- processSamples(t, p, n_samps, N, betas, tau2s, s2s, 
+                            Y.list.outlier, H.list.outlier, nobs_outlier,
+                            X_PPCA$X_center, X_PPCA$Lambda, diag(p),
+                            X_PPCA$K_hat, mu_outlier, n_thin, preds=FALSE)
+
+y_tilde_mean_ppca_ssvs_hier_fort_outlier <- summaries$y_tilde_mean
+y_tilde_sd_ppca_ssvs_hier_fort_outlier <- summaries$y_tilde_sd
+loo_ppca_ssvs_hier_fort_outlier <- loo(matrix(unlist(summaries$log_like),
+                                     n_samps / n_thin, sum(nobs_outlier), byrow=FALSE))
+rm(samps, summaries, betas, s2s, tau2s)
+```
+```{r pPCALassoHierFortOutlier, cache=TRUE, echo=FALSE, cache.lazy=FALSE, eval=TRUE}
+jinits <- function(){ 
+  list(beta=matrix(rnorm(t*p, 0, 10), p, t), tau_inv=runif(t, 0, 100), 
+       s_inv=dunif(1, 0, 100))
+}
+
+dat <- list(Y=Y_sparse_outlier, X=X_PPCA$X_center, H=H_sparse_outlier, p=p,
+            K_hat=X_PPCA$K_hat, tKK=X_PPCA$Lambda, I_p=diag(p), t=t,
+            tt=tt_outlier, N_total=length(tt_outlier))
+
+params <- c("gamma", "beta", "tau2", "s2")
+
+samps <- foreach(i=1:n_chains, .inorder = FALSE, 
+                 .packages = c("rjags", "random"), .combine = "mcmc.combine", 
+                 .multicombine = TRUE) %dopar% {
+  model.jags <- jags.model("~/spatialModeling/fortData/models/pPCALassoHierFull.txt",
+                           data=dat, inits=jinits, n.chain=1, n.adapt=n_adapt)
+  update(model.jags, n_burn)
+  result <- coda.samples(model.jags, params, n_iter)
+  return(result)
+}
+samps <- combine.mcmc(samps)
+n_samps <- dim(samps)[1]
+
+tau2s <- matrix(0, n_samps, t)
+s2s <- c(samps[, "s2"])
+betas <- array(0, dim=c(n_samps, t, p))
+for(i in 1:t){
+  tau2s[, i] <- samps[, paste("tau2[", i, "]", sep="")]
+  for(j in 1:p){
+    betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")]
+  }
+}               
+
+summaries <- processSamples(t, p, n_samps, N, betas, tau2s, s2s, 
+                            Y.list.outlier, H.list.outlier, nobs_outlier, 
+                            X_PPCA$X_center, X_PPCA$Lambda, diag(p),
+                            X_PPCA$K_hat, mu_outlier, n_thin, preds=FALSE)
+
+y_tilde_mean_ppca_lasso_hier_fort_outlier <- summaries$y_tilde_mean
+y_tilde_sd_ppca_lasso_hier_fort_outlier <- summaries$y_tilde_sd
+loo_ppca_lasso_hier_fort_outlier <- loo(matrix(unlist(summaries$log_like),
+                                       n_samps / n_thin, sum(nobs_outlier), byrow=FALSE))
+rm(samps, summaries, betas, s2s, tau2s)
+```
+```{r tpPCASSVSHierFortOutlier, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE}
+jinits <- function(){   
+  list(beta=matrix(rnorm(p, 0, 10), p, t), s_inv=runif(1, 0, 100), 
+       tau_inv=runif(t, 0, 100)) }
+
+dat <- list(Y=Y_sparse_outlier, X=X_PPCA$X_center, H=H_sparse_outlier, p=p, 
+            K_hat=X_PPCA$K_hat, tKK=X_PPCA$Lambda, I_p=diag(p), t=t, 
+            tt=tt_outlier, N_total=length(tt_outlier))
+
+params <- c("gamma", "beta", "s2", "tau2_beta", "nu", "v_inv", "log_like",
+            "tau2")
+
+samps <- foreach(i=1:n_chains, .inorder = FALSE, 
+                 .packages = c("rjags", "random"), .combine = "mcmc.combine", 
+                 .multicombine = TRUE) %dopar% {
+  model.jags <- jags.model("~/spatialModeling/fortData/models/tpPCASSVSHierFull.txt",
+                           data=dat, inits=jinits, n.chain=1, n.adapt=n_adapt)
+  update(model.jags, n_burn)
+  result <- coda.samples(model.jags, params, n_iter)
+  return(result)
+}
+samps <- combine.mcmc(samps)
+n_samps <- dim(samps)[1]
+
+nus <- matrix(0, n_samps, t)
+v_invs <- matrix(0, n_samps, sum(nobs_outlier))
+s2s <- samps[, paste("s2")]
+tau2s <- matrix(0, n_samps, t)
+betas <- array(0, dim=c(n_samps, t, p))
+log_like <- matrix(0, n_samps, sum(nobs_outlier))
+for(i in 1:t){
+  tau2s[, i] <- samps[, paste("tau2[", i, "]", sep="")]
+  nus[, i] <- samps[, paste("nu[", i, "]", sep="")]
+  for(j in 1:p){
+    betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")]
+  }
+}               
+for(i in 1:sum(nobs_outlier)){
+  log_like[, i] <- log(samps[, paste("log_like[", i, "]", sep="")]) 
+  v_invs[, i] <- samps[, paste("v_inv[", i, "]", sep="")]
+}    
+ 
+summaries <- processSamplesT(t, p, n_samps, N, betas, tau2s, s2s, nus,
+                             v_invs, Y.list.outlier, H.list.outlier, nobs_outlier,
+                             X_PPCA$X_center, X_PPCA$Lambda, diag(p),
+                             X_PPCA$K_hat, mu_outlier, n_thin, preds=FALSE)
+
+y_tilde_mean_tppca_ssvs_hier_fort_outlier <- summaries$y_tilde_mean 
+y_tilde_sd_tppca_ssvs_hier_fort_outlier <- summaries$y_tilde_sd
+loo_tppca_ssvs_hier_fort_outlier <- loo(log_like)
+rm(samps, nus, v_invs, s2s, tau2s, betas, log_like, summaries)
+```
+```{r tpPCALassobHierFortOutlier, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE}
+jinits <- function(){
+  list(beta=matrix(rnorm(p, 0, 10), p, t),  s_inv=runif(1, 0, 100),
+       tau_inv=runif(t, 0, 100), gamma2=matrix(rgamma(p*t, 1, 1), p, t),
+       lambda2=rexp(t))
+}
+
+dat <- list(Y=Y_sparse_outlier, X=X_PPCA$X_center, H=H_sparse_outlier, p=p, 
+            K_hat=X_PPCA$K_hat, tKK=X_PPCA$Lambda, I_p=diag(p), t=t, 
+            tt=tt_outlier, N_total=length(tt_outlier))
+
+params <- c("gamma2", "lambda2", "beta", "nu", "s2", "tau2", "v_inv",
+            "log_like")
+
+samps <- foreach(i=1:n_chains, .inorder = FALSE, 
+                 .packages = c("rjags", "random"), .combine = "mcmc.combine", 
+                 .multicombine = TRUE) %dopar% {
+  model.jags <- jags.model("~/spatialModeling/fortData/models/tpPCALassobHierFull.txt", 
+                           data=dat, inits=jinits, n.chain=1, n.adapt=n_adapt)
+  update(model.jags, n_burn)
+  result <- coda.samples(model.jags, params, n_iter)
+  return(result)
+}
+samps <- combine.mcmc(samps)
+n_samps <- dim(samps)[1]
+
+nus <- matrix(0, n_samps, t)
+v_invs <- matrix(0, n_samps, sum(nobs_outlier))
+s2s <- samps[, paste("s2")]
+tau2s <- matrix(0, n_samps, t)
+betas <- array(0, dim=c(n_samps, t, p))
+log_like <- matrix(0, n_samps, sum(nobs_outlier))
+for(i in 1:t){
+  tau2s[, i] <- samps[, paste("tau2[", i, "]", sep="")]
+  nus[, i] <- samps[, paste("nu[", i, "]", sep="")]
+  for(j in 1:p){
+    betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")]
+  }
+}               
+for(i in 1:sum(nobs_outlier)){
+  log_like[, i] <- log(samps[, paste("log_like[", i, "]", sep="")])
+  v_invs[, i] <- samps[, paste("v_inv[", i, "]", sep="")]
+}
+ 
+summaries <- processSamplesT(t, p, n_samps, N, betas, tau2s, s2s, nus, v_invs,
+                             Y.list.outlier, H.list.outlier, nobs_outlier, 
+                             X_PPCA$X_center, X_PPCA$Lambda, diag(p), 
+                             X_PPCA$K_hat, mu_outlier, n_thin, preds=FALSE)
+
+y_tilde_mean_tppca_lassob_hier_fort_outlier <- summaries$y_tilde_mean 
+y_tilde_sd_tppca_lassob_hier_fort_outlier <- summaries$y_tilde_sd
+loo_tppca_lassob_hier_fort_outlier <- loo(log_like)
+rm(samps, nus, v_invs, s2s, tau2s, betas, log_like, summaries)
+```
+
+## Examine variogram for residual spatial structure
+
+```{r variogramPCA, cache=TRUE, echo=FALSE, warning=FALSE, message=FALSE, fig.height=6, fig.width=6, fig.keep='all', fig.show='hide', eval=TRUE, results='hide'}
+# data(fortFunctions)
+
+Y_obs <- rep(0, sum(nobs))
+Y_hat <- rep(0, sum(nobs))
+for (i in 1:sum(nobs)) {
+  Y_obs[i] <- Y_sparse[i] + mu[tt[i]]
+  Y_hat[i] <- y_tilde_mean_tpca_lassob_hier_fort_outlier[H_sparse[i], tt[i]]
+}
+outlier_idx <- which(Y_obs == min(Y_obs))
+Y_obs <- Y_obs[ - outlier_idx]
+Y_hat <- Y_hat[ - outlier_idx]
+resids <- Y_obs - Y_hat
+
+
+layout(matrix(1:3, 3, 1))
+hist(Y_obs)
+hist(Y_hat)
+hist(resids)
+# min(resids)
+
+# dists3 <- dist(as.matrix(locs[H_sparse, ]))
+# dists <- distGeo(as.matrix(locs[H_sparse, ]), as.matrix(locs[H_sparse, ]))
+dists <- fields::rdist.earth(as.matrix(locs[H_sparse, ]), as.matrix(locs[H_sparse, ]))
+# colnames(locs) <- c("X", "Y")
+locs.df <- data.frame(ID=1:length(locs[, 1]), X=locs[, 1], Y=locs[, 2])
+coordinates(locs.df) <- c("X", "Y")
+proj4string(locs.df) <- CRS("+proj=longlat +datum=WGS84")  ## for example
+utms <- spTransform(locs.df, CRS(paste("+proj=utm +zone=",15," ellps=WGS84",sep='')))
+
+num_breaks <- 100
+dists <- dist(utms@coords[H_sparse, ][ - outlier_idx, ])
+breaks <- seq(min(dists), max(dists), length=num_breaks)
+breaksstar <- seq(0, 50000, length=30)
+v0 <- variog(coords=utms@coords[H_sparse, ][ - outlier_idx, ], data=resids, 
+             breaks=breaks, messages=FALSE)
+vstar <- variog(coords=utms@coords[H_sparse, ][ - outlier_idx, ], data=resids,
+                breaks=breaksstar, messages=FALSE)
+vtime <- variog(coords=utms@coords[H_sparse, ][tt == 56, ], data=resids[tt == 56],
+                messages=FALSE)
+
+# v1 <- variog(coords=utms@coords[H_sparse, ][ - outlier_idx,], data=resids, 
+#              option="cloud", messages=FALSE)
+# v2 <- variog(coords=utms@coords[H_sparse, ][ - outlier_idx, ], data=resids, 
+#              option="smooth", messages=FALSE)
+# v0.summary <- cbind(1:num_breaks, v0$v, v0$n)
+# colnames(v0.summary) <- c("lag", "semi-variance", "# of pairs")
+# v0.summary
+layout(matrix(1:2, 2, 1))
+plot(v0, type = "b", main = "Variogram: robust PCA LASSO") 
+plot(vstar, type = "b", main = "Variogram: robust PCA LASSO small scale")
+plot(vtime, type = "b", main = "Variogram: robust PCA LASSO one year")
+# plot(v1, type = "b", main = "Variogram: robust PCA LASSO", bin.cloud=FALSE) 
+# plot(v2, type = "b", main = "Variogram: robust PCA LASSO")
+# lines(v1)
+# points(v1$u, v1$v, type="p", col=adjust.color('black', alpha.f=0.025))
+# lines(v2)
+```
+
+```{r variogramPPCA, cache=TRUE, echo=FALSE, warning=FALSE, message=FALSE, fig.height=6, fig.width=6, fig.keep='all', fig.show='hide', eval=TRUE, results='hide'}
+# data(fortFunctions)
+
+Y_obs <- rep(0, sum(nobs))
+Y_hat <- rep(0, sum(nobs))
+for (i in 1:sum(nobs)) {
+  Y_obs[i] <- Y_sparse[i] + mu[tt[i]]
+  Y_hat[i] <- y_tilde_mean_tppca_lassob_hier_fort_outlier[H_sparse[i], tt[i]]
+}
+outlier_idx <- which(Y_obs == min(Y_obs))
+Y_obs <- Y_obs[ - outlier_idx]
+Y_hat <- Y_hat[ - outlier_idx]
+resids <- Y_obs - Y_hat
+
+layout(matrix(1:3, 3, 1))
+hist(Y_obs)
+hist(Y_hat)
+hist(resids)
+
+# dists3 <- dist(as.matrix(locs[H_sparse, ]))
+# dists <- distGeo(as.matrix(locs[H_sparse, ]), as.matrix(locs[H_sparse, ]))
+dists <- fields::rdist.earth(as.matrix(locs[H_sparse, ]), as.matrix(locs[H_sparse, ]))
+# colnames(locs) <- c("X", "Y")
+locs.df <- data.frame(ID=1:length(locs[, 1]), X=locs[, 1], Y=locs[, 2])
+coordinates(locs.df) <- c("X", "Y")
+proj4string(locs.df) <- CRS("+proj=longlat +datum=WGS84")  ## for example
+utms <- spTransform(locs.df, CRS(paste("+proj=utm +zone=",15," ellps=WGS84",sep='')))
+
+num_breaks <- 100
+dists <- dist(utms@coords[H_sparse, ][ - outlier_idx, ])
+breaks <- seq(min(dists), max(dists), length=num_breaks)
+breaksstar <- seq(0, 50000, length=30)
+v0 <- variog(coords=utms@coords[H_sparse, ][ - outlier_idx, ], data=resids, 
+             breaks=breaks, messages=FALSE)
+vstar <- variog(coords=utms@coords[H_sparse, ][ - outlier_idx, ], data=resids, 
+                breaks=breaksstar, messages=FALSE)
+# v1 <- variog(coords=utms@coords[H_sparse, ][ - outlier_idx,], data=resids, 
+#              option="cloud", messages=FALSE)
+# v2 <- variog(coords=utms@coords[H_sparse, ][ - outlier_idx, ], data=resids, 
+#              option="smooth", messages=FALSE)
+# v0.summary <- cbind(1:num_breaks, v0$v, v0$n)
+# colnames(v0.summary) <- c("lag", "semi-variance", "# of pairs")
+# v0.summary
+layout(matrix(1:2, 2, 1))
+plot(v0, type = "b", main = "Variogram: robust PPCA LASSO") 
+plot(vstar, type = "b", main = "Variogram: robust PPCA LASSO small scale")
+# plot(v1, type = "b", main = "Variogram: robust PCA LASSO", bin.cloud=FALSE) 
+# plot(v2, type = "b", main = "Variogram: robust PCA LASSO")
+# lines(v1)
+# points(v1$u, v1$v, type="p", col=adjust.color('black', alpha.f=0.025))
+# lines(v2)
+```
+
+## Examine observer goodness of LOO fit
+
+```{r loo_fort, echo=FALSE, message=FALSE, include=FALSE, warning=FALSE, fig.height=6, fig.width=12, eval=TRUE}
+## PCR
+par(mfrow=c(1, 2), mar=c(3.5, 3.5, 1.75, 1) + 0.1, oma=c(0, 0, 0.25, 0.25) + 0.1, mgp=c(2, 1, 0))
+plot_k(loo_tppca_lassob_hier_fort$pareto_k, main="LASSO robust pPCR", ylim=c(0, 3.25),
+       cex.axis=1.5, cex.main=1.5, cex.lab=1.5)
+mtext("(a)",side=3,line=-1.9,adj=c(0.1),cex=2,col="black")
+plot_k(loo_tppca_lassob_hier_fort_outlier$pareto_k, main="LASSO robust pPCR outlier removed", ylim=c(0, 3.25), 
+       cex.axis=1.5, cex.main=1.5, cex.lab=1.5)
+mtext("(b)",side=3,line=-1.9,adj=c(0.1),cex=2,col="black")
+```
+
+\begin{figure}
+\centering\includegraphics[width=0.95\linewidth]{tipton-06-10-2016_files/figure-latex/loo_fort-1.pdf}
+\caption{Plot of Fort data LOO Pareto shape estimates with (a) and without (b) outlying observation. Values less than 0.5 show good model performance and values over 1.0 show poor model performance.}
+\label{fig:fortlooplots}
+\end{figure}
+
+## Model results
+
+```{r simTablesFortOutlier, echo=FALSE, message=FALSE, eval=TRUE}
+loo_preds_fort_outlier <- data.frame(looic= NA)
+loo_ic_fort_outlier <- data.frame(cbind(c(loo_pca_ssvs_hier_fort_outlier$looic,
+                                  loo_pca_lasso_hier_fort_outlier$looic),
+                                c(loo_ppca_ssvs_hier_fort_outlier$looic,
+                                  loo_ppca_lasso_hier_fort_outlier$looic), 
+                                c(loo_tpca_ssvs_hier_fort_outlier$looic,
+                                  loo_tpca_lassob_hier_fort_outlier$looic),
+                                c(loo_tppca_ssvs_hier_fort_outlier$looic,
+                                  loo_tppca_lassob_hier_fort_outlier$looic)))
+rownames(loo_ic_fort_outlier) <- c("SSVS", "LASSO")
+colnames(loo_ic_fort_outlier) <- c("PCR", "pPCR", "PCR", "pPCR")
+addtorow$pos <- list(0)
+addtorow$command <- c("\\multicolumn{1}{|r|}{} & \\multicolumn{2}{c|}{Gaussian} & \\multicolumn{2}{c|}{Robust} \\\\
+& PCR & pPCR & PCR & pPCR \\\\\n")
+print(xtable(loo_ic_fort_outlier, digits=0, align=c("|r|rr|rr|")),
+      hline.after=c(-1, 0, nrow(loo_ic_fort)), add.to.row=addtorow, 
+      file="loofortoutlier.tex", floating=FALSE, size="small",
+      include.colnames=FALSE)
+
+fortscores <- data.frame(cbind(c(loo_pca_ssvs_hier_fort$looic, 
+                                 loo_ppca_ssvs_hier_fort$looic,
+                                  loo_pca_lasso_hier_fort$looic,            
+                                 loo_ppca_lasso_hier_fort$looic), 
+                                c(loo_tpca_ssvs_hier_fort$looic,
+                                  loo_tppca_ssvs_hier_fort$looic, 
+                                  loo_tpca_lassob_hier_fort$looic,
+                                  loo_tppca_lassob_hier_fort$looic),
+                               c(loo_pca_ssvs_hier_fort_outlier$looic, 
+                                 loo_ppca_ssvs_hier_fort_outlier$looic,
+                                 loo_pca_lasso_hier_fort_outlier$looic,            
+                                 loo_ppca_lasso_hier_fort_outlier$looic), 
+                               c(loo_tpca_ssvs_hier_fort_outlier$looic,
+                                 loo_tppca_ssvs_hier_fort_outlier$looic, 
+                                 loo_tpca_lassob_hier_fort_outlier$looic,
+                                 loo_tppca_lassob_hier_fort_outlier$looic)))
+rownames(fortscores) <- c("SSVS PCR", "SSVS pPCR", "LASSO PCR", "LASSO pPCR")
+addtorow <- list()
+addtorow$pos <- list(0)
+addtorow$command <- c("\\multicolumn{1}{r}{} & \\multicolumn{2}{c}{Full Data} & \\multicolumn{2}{c}{Outlier Removed} \\\\
+ Model & Gaussian & Robust & Gaussian & Robust \\\\\n")
+print(xtable(fortscores, digits=0, align=c("rrrrr")),
+      hline.after=c(-1, 0, nrow(fortscores)), add.to.row=addtorow, 
+      file="fort-scores.tex",
+      floating=FALSE, size="small", include.colnames=FALSE)
+
+```
+
+## Reconstruction Results
+
+```{r fortPlotstPCA, echo=TRUE, eval=TRUE, include=FALSE, fig.height=6, fig.width=12, eval=TRUE}
+fort.raster.tmp <- fort.raster
+fort.raster.sd <- fort.raster
+min.fort <- rep(NA, t)
+max.fort <- rep(NA, t)
+min.fort.sd <- rep(NA, t)
+max.fort.sd <- rep(NA, t)
+
+for(i in 1:t){
+  values(fort.raster.tmp[[i]])[ - na.rows] <- y_tilde_mean_tpca_lassob_hier_fort_outlier[, i]
+  values(fort.raster.sd[[i]])[ - na.rows] <- y_tilde_sd_tpca_lassob_hier_fort_outlier[, i]
+  min.fort[i] <- min(y_tilde_mean_tpca_lassob_hier_fort_outlier, 
+                     y_tilde_mean_tppca_lassob_hier_fort_outlier)
+  max.fort[i] <- max(y_tilde_mean_tpca_lassob_hier_fort_outlier, 
+                     y_tilde_mean_tppca_lassob_hier_fort_outlier)
+  min.fort.sd[i] <- min(y_tilde_sd_tpca_lassob_hier_fort_outlier, 
+                     y_tilde_sd_tppca_lassob_hier_fort_outlier)
+  max.fort.sd[i] <- max(y_tilde_sd_tpca_lassob_hier_fort_outlier, 
+                     y_tilde_sd_tppca_lassob_hier_fort_outlier)
+}
+subset <- c(12, 28, 56, 71)
+
+layout(matrix(c(1, 1, 1, 2, 2, 2, 9, 3, 3, 3, 4, 4, 4, 10,
+                1, 1, 1, 2, 2, 2, 9, 3, 3, 3, 4, 4, 4, 10, 
+                1, 1, 1, 2, 2, 2, 9, 3, 3, 3, 4, 4, 4, 10, 
+                5, 5, 5, 6, 6, 6, 9, 7, 7, 7, 8, 8, 8, 10,
+                5, 5, 5, 6, 6, 6, 9, 7, 7, 7, 8, 8, 8, 10,                
+                5, 5, 5, 6, 6, 6, 9, 7, 7, 7, 8, 8, 8, 10), 6, 14, byrow=TRUE))
+par(mar=c(0.5, 0.5, 1.75, 0.5) + 0.1, oma=c(0, 0, 0.25, 0.25) + 0.1)
+
+for(i in subset[1:2]){
+  image(fort.raster.tmp[[i]], main = paste(i + 1819), col = topo.colors(64),
+             zlim = c(min(min.fort), max(max.fort)), ylab = '', xlab='', yaxt="n", xaxt="n", cex.main=2.5)
+  if(i == subset[1]){
+    mtext("(a)",side=3,line=-1.9,adj=c(0.1),cex=2,col="black")
+  }
+  map(database = 'state', add = TRUE, col = 'black')
+  points(prism.points[H.list[[i]], ], pch = 16, col = 'black', cex = 1.5)
+}
+
+for(i in subset[1:2]){
+  image(fort.raster.sd[[i]], main = paste(i + 1819), col = cm.colors(64),
+             zlim = c(min(min.fort.sd), max(max.fort.sd)), 
+             ylab = '', xlab='', yaxt="n", xaxt="n", cex.main=2.5)
+  map(database = 'state', add = TRUE, col = 'black')
+  if(i == subset[1]){
+    mtext("(b)",side=3,line=-1.9,adj=c(0.1),cex=2,col="black")
+  }
+  points(prism.points[H.list[[i]], ], pch = 16, col = 'black', cex = 1.5)
+}
+
+for(i in subset[3:4]){
+  image(fort.raster.tmp[[i]], main = paste(i + 1819), col = topo.colors(64),
+             zlim = c(min(min.fort), max(max.fort)), ylab = '', xlab='', yaxt="n", xaxt="n", cex.main=2.5)
+  map(database = 'state', add = TRUE, col = 'black')
+  points(prism.points[H.list[[i]], ], pch = 16, col = 'black', cex = 1.5)
+}
+
+for(i in subset[3:4]){
+  image(fort.raster.sd[[i]], main = paste(i + 1819), col = cm.colors(64),
+             zlim = c(min(min.fort.sd), max(max.fort.sd)), 
+             ylab = '', xlab='', yaxt="n", xaxt="n", cex.main=2.5)
+  map(database = 'state', add = TRUE, col = 'black')
+  points(prism.points[H.list[[i]], ], pch = 16, col = 'black', cex = 1.5)
+}
+image.scale(fort.raster.tmp[[i]], col = topo.colors(64), 
+             zlim = c(min(min.fort), max(max.fort)), horiz=FALSE)
+image.scale(fort.raster.sd[[i]], col = cm.colors(64), 
+             zlim = c(min(min.fort.sd), max(max.fort.sd)), horiz=FALSE)
+```
+
+\begin{figure}
+\centering\includegraphics[width=0.95\linewidth]{tipton-06-10-2016_files/figure-latex/fortPlotstPCA-1.pdf}
+\caption{Reconstruction of temperature using robust PCR model for four representative years. Figures show posterior predictive mean (a) and standard deviation (b).}
+\label{fig:tPCRFort}
+\end{figure}
+
+```{r fortPlotstpPCA, echo=TRUE, eval=TRUE, include=FALSE, fig.height=6, fig.width=6, eval=TRUE}
+fort.raster.tmp <- fort.raster
+fort.raster.sd <- fort.raster
+min.fort <- rep(NA, t)
+max.fort <- rep(NA, t)
+min.fort.sd <- rep(NA, t)
+max.fort.sd <- rep(NA, t)
+
+for(i in 1:t){
+  values(fort.raster.tmp[[i]])[ - na.rows] <- y_tilde_mean_tpca_lassob_hier_fort_outlier[, i]
+  values(fort.raster.sd[[i]])[ - na.rows] <- y_tilde_sd_tpca_lassob_hier_fort_outlier[, i]
+  min.fort[i] <- min(y_tilde_mean_tpca_lassob_hier_fort_outlier, 
+                     y_tilde_mean_tppca_lassob_hier_fort_outlier)
+  max.fort[i] <- max(y_tilde_mean_tpca_lassob_hier_fort_outlier, 
+                     y_tilde_mean_tppca_lassob_hier_fort_outlier)
+  min.fort.sd[i] <- min(y_tilde_sd_tpca_lassob_hier_fort_outlier, 
+                     y_tilde_sd_tppca_lassob_hier_fort_outlier)
+  max.fort.sd[i] <- max(y_tilde_sd_tpca_lassob_hier_fort_outlier, 
+                     y_tilde_sd_tppca_lassob_hier_fort_outlier)
+}
+subset <- c(12, 28, 56, 71)
+
+layout(matrix(c(1, 1, 1, 2, 2, 2, 9, 3, 3, 3, 4, 4, 4, 10,
+                1, 1, 1, 2, 2, 2, 9, 3, 3, 3, 4, 4, 4, 10, 
+                1, 1, 1, 2, 2, 2, 9, 3, 3, 3, 4, 4, 4, 10, 
+                5, 5, 5, 6, 6, 6, 9, 7, 7, 7, 8, 8, 8, 10,
+                5, 5, 5, 6, 6, 6, 9, 7, 7, 7, 8, 8, 8, 10,                
+                5, 5, 5, 6, 6, 6, 9, 7, 7, 7, 8, 8, 8, 10), 6, 14, byrow=TRUE))
+par(mar=c(0.5, 0.5, 1.75, 0.5) + 0.1, oma=c(0, 0, 0.25, 0.25) + 0.1)
+
+for(i in subset[1:2]){
+  image(fort.raster.tmp[[i]], main = paste(i + 1819), col = topo.colors(64),
+             zlim = c(min(min.fort), max(max.fort)), ylab = '', xlab='',
+        yaxt="n", xaxt="n", cex.main=2.5)
+  if(i == subset[1]){
+    mtext("(a)",side=3,line=-1.9,adj=c(0.1),cex=2,col="black")
+  }
+  map(database = 'state', add = TRUE, col = 'black')
+  points(prism.points[H.list[[i]], ], pch = 16, col = 'black', cex = 1.5)
+}
+
+for(i in subset[1:2]){
+  image(fort.raster.sd[[i]], main = paste(i + 1819), col = cm.colors(64),
+             zlim = c(min(min.fort.sd), max(max.fort.sd)),
+             ylab = '', xlab='', yaxt="n", xaxt="n", cex.main=2.5)
+  map(database = 'state', add = TRUE, col = 'black')
+  if(i == subset[1]){
+    mtext("(b)",side=3,line=-1.9,adj=c(0.1),cex=2,col="black")
+  }
+  points(prism.points[H.list[[i]], ], pch = 16, col = 'black', cex = 1.5)
+}
+
+for(i in subset[3:4]){
+  image(fort.raster.tmp[[i]], main = paste(i + 1819), col = topo.colors(64),
+             zlim = c(min(min.fort), max(max.fort)), ylab = '', xlab='', yaxt="n", xaxt="n", cex.main=2.5)
+  map(database = 'state', add = TRUE, col = 'black')
+  points(prism.points[H.list[[i]], ], pch = 16, col = 'black', cex = 1.5)
+}
+
+for(i in subset[3:4]){
+  image(fort.raster.sd[[i]], main = paste(i + 1819), col = cm.colors(64),
+             zlim = c(min(min.fort.sd), max(max.fort.sd)),
+             ylab = '', xlab='', yaxt="n", xaxt="n", cex.main=2.5)
+  map(database = 'state', add = TRUE, col = 'black')
+  points(prism.points[H.list[[i]], ], pch = 16, col = 'black', cex = 1.5)
+}
+image.scale(fort.raster.tmp[[i]], col = topo.colors(64), 
+            zlim = c(min(min.fort), max(max.fort)), horiz=FALSE)
+image.scale(fort.raster.sd[[i]], col = cm.colors(64), 
+             zlim = c(min(min.fort.sd), max(max.fort.sd)), horiz=FALSE)
+```
+
+\begin{figure}
+\centering\includegraphics[width=0.95\linewidth]{tipton-06-10-2016_files/figure-latex/fortPlotstPCA-1.pdf}
+\caption{Reconstruction of temperature using robust probabilistic PCR model for four representative years. Figures show posterior predictive mean (a) and standard deviation (b).}
+\label{fig:tpPCRFort}
+\end{figure}
+
+## Full results
+
+```{r fortPlotstPCAFull, echo=FALSE, include=TRUE, fig.height=6, fig.width=6, fig.keep='all', fig.show='hide', cache=TRUE, eval=TRUE}
+fort.raster.tmp <- fort.raster
+fort.raster.sd <- fort.raster
+min.fort <- rep(NA, t)
+max.fort <- rep(NA, t)
+min.fort.sd <- rep(NA, t)
+max.fort.sd <- rep(NA, t)
+
+for(i in 1:t){
+  values(fort.raster.tmp[[i]])[ - na.rows] <- y_tilde_mean_tpca_lassob_hier_fort_outlier[, i]
+  values(fort.raster.sd[[i]])[ - na.rows] <- y_tilde_sd_tpca_lassob_hier_fort_outlier[, i]
+  min.fort[i] <- min(y_tilde_mean_tpca_lassob_hier_fort_outlier, 
+                     y_tilde_mean_tppca_lassob_hier_fort_outlier)
+  max.fort[i] <- max(y_tilde_mean_tpca_lassob_hier_fort_outlier, 
+                     y_tilde_mean_tppca_lassob_hier_fort_outlier)
+  min.fort.sd[i] <- min(y_tilde_sd_tpca_lassob_hier_fort_outlier, 
+                     y_tilde_sd_tppca_lassob_hier_fort_outlier)
+  max.fort.sd[i] <- max(y_tilde_sd_tpca_lassob_hier_fort_outlier, 
+                     y_tilde_sd_tppca_lassob_hier_fort_outlier)
+}
+
+par(mfrow=c(4, 4), mar=c(3, 3, 1.75, 1.5) + 0.1, oma=c(0, 0, 0.25, 0.5) + 0.1, mgp=c(2, 1, 0))
+# par(mfrow=c(4, 4), mar=c(3, 3, 1, 1) + 0.1, oma=c(0, 0, 0, 0) + 0.1, mgp=c(2, 1, 0))
+for(i in 1:t) {
+  image.plot(fort.raster.tmp[[i]], main = paste(i + 1819), col = topo.colors(64),
+             zlim = c(min(min.fort), max(max.fort)), 
+             # zlim = c(min(min.fort), max(max.fort)), 
+             ylab = '', xlab='', yaxt="n", xaxt="n", cex.main=1.5)
+  map(database = 'state', add = TRUE, col = 'black')
+  points(prism.points[H.list[[i]], ], pch = 16, cex = 1)
+}
+
+par(mfrow=c(4, 4), mar=c(3, 3, 1.75, 1.5) + 0.1, oma=c(0, 0, 0.25, 0.5) + 0.1, mgp=c(2, 1, 0))
+# par(mfrow=c(4, 4), mar=c(3, 3, 1, 1) + 0.1, oma=c(0, 0, 0, 0) + 0.1, mgp=c(2, 1, 0))
+for(i in 1:t){
+  image.plot(fort.raster.sd[[i]], main = paste(i + 1819), col = cm.colors(64),
+             zlim = c(min(min.fort.sd), max(max.fort.sd)),  
+        # zlim = c(min(min.fort.sd), max(max.fort.sd)),          
+        ylab = '', xlab='', yaxt="n", xaxt="n", cex.main=1.5)
+  map(database = 'state', add = TRUE, col = 'black')
+  points(prism.points[H.list[[i]], ], pch = 16, cex = 1, col = 'black')
+}
+```
+
+```{r fortPlotstpPCAFull, echo=FALSE, include=TRUE, fig.height=6, fig.width=6, fig.keep='all', fig.show='hide', cache=TRUE, eval=TRUE}
+fort.raster.tmp <- fort.raster
+fort.raster.sd <- fort.raster
+min.fort <- rep(NA, t)
+max.fort <- rep(NA, t)
+min.fort.sd <- rep(NA, t)
+max.fort.sd <- rep(NA, t)
+
+for(i in 1:t){
+  values(fort.raster.tmp[[i]])[ - na.rows] <- y_tilde_mean_tpca_lassob_hier_fort_outlier[, i]
+  values(fort.raster.sd[[i]])[ - na.rows] <- y_tilde_sd_tpca_lassob_hier_fort_outlier[, i]
+  min.fort[i] <- min(y_tilde_mean_tpca_lassob_hier_fort_outlier, 
+                     y_tilde_mean_tppca_lassob_hier_fort_outlier)
+  max.fort[i] <- max(y_tilde_mean_tpca_lassob_hier_fort_outlier, 
+                     y_tilde_mean_tppca_lassob_hier_fort_outlier)
+  min.fort.sd[i] <- min(y_tilde_sd_tpca_lassob_hier_fort_outlier, 
+                     y_tilde_sd_tppca_lassob_hier_fort_outlier)
+  max.fort.sd[i] <- max(y_tilde_sd_tpca_lassob_hier_fort_outlier, 
+                     y_tilde_sd_tppca_lassob_hier_fort_outlier)
+}
+par(mfrow=c(4, 4), mar=c(3, 3, 1.75, 1.5) + 0.1, oma=c(0, 0, 0.25, 0.5) + 0.1, mgp=c(2, 1, 0))
+# par(mfrow=c(4, 4), mar=c(3, 3, 1, 1) + 0.1, oma=c(0, 0, 0, 0) + 0.1, mgp=c(2, 1, 0))
+for(i in 1:t) {
+  image.plot(fort.raster.tmp[[i]], main = paste(i + 1819), col = topo.colors(64),
+             zlim = c(min(min.fort), max(max.fort)), 
+             # zlim = c(min(min.fort), max(max.fort)),
+             ylab = '', xlab='', yaxt="n", xaxt="n", cex.main=1.5)
+  map(database = 'state', add = TRUE, col = 'black')
+  points(prism.points[H.list[[i]], ], pch = 16, cex = 1)
+}
+
+par(mfrow=c(4, 4), mar=c(3, 3, 1.75, 1.5) + 0.1, oma=c(0, 0, 0.25, 0.5) + 0.1, mgp=c(2, 1, 0))
+# par(mfrow=c(4, 4), mar=c(3, 3, 1, 1) + 0.1, oma=c(0, 0, 0, 0) + 0.1, mgp=c(2, 1, 0))
+for(i in 1:t){
+  image.plot(fort.raster.sd[[i]], main = paste(i + 1819), col = cm.colors(64),
+             zlim = c(min(min.fort.sd), max(max.fort.sd)), 
+        # zlim = c(min(min.fort.sd), max(max.fort.sd)),  
+        ylab = '', xlab='', yaxt="n", xaxt="n", cex.main=1.5)
+  map(database = 'state', add = TRUE, col = 'black')
+  points(prism.points[H.list[[i]], ], pch = 16, cex = 1, col = 'black')
+}
+```
+
+
