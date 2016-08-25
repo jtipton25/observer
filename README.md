@@ -13,7 +13,7 @@ R CMD INSTALL myFunctions_1.0.tar.gz
 ```
 and
 ```
-R CMD INSTALL bayesTreeRing_1.0.tar.gz
+R CMD INSTALL fortFunctions_1.0.tar.gz
 ```
 to install the necessary R packages
 
