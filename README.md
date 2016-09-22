@@ -13,9 +13,16 @@ R CMD INSTALL myFunctions_1.0.tar.gz
 ```
 and
 ```
-R CMD INSTALL bayesTreeRing_1.0.tar.gz
+R CMD INSTALL fortFunctions_1.0.tar.gz
 ```
 to install the necessary R packages
 
 ### R 
+
+#### `process-data.R`
+This file converts the raw data into an .RData file for use in the file `observer.Rmd`.
+
+#### `observer.Rmd`
+This R markdown file runs all analyses in the paper and produces all plots included in the paper as well as diagnostic/model checks not included in the publication. `observer.Rmd` takes approximately 24 hours to run on my 2015 Macbook Pro laptop.
+
 ### Data
