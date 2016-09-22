@@ -1,0 +1,8 @@
+layout(matrix(1:4, 2, 2))
+mu=rnorm(10000,0,1)
+hist(mu)
+s=runif(10000,0,1)
+hist(s)
+hist(rlnorm(10000, mu, s^2), main="implied prior", breaks=100)
+library(LaplacesDemon)
+hist(rhalfcauchy(10000, 25), breaks=1000, main="canonical variance prior")
