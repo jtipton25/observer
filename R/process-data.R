@@ -307,6 +307,11 @@ setwd("./data/Temp")
 all.temp <- list.files(full.names=TRUE)
 july.temp <- all.temp[regexpr(".07.tif", all.temp, fixed=TRUE)>0]
 prism <- stack(july.temp)
+for (i in 1:dim(prism)[3]) {
+  tmp_file_name <- prism[[i]]@file@name
+  ## subset string of file name to relative path
+  prism[[i]]@file@name <- paste("~", substr(tmp_file_name, 12, 59), sep="")
+}
 setwd("./../../../")
 
 ################################################################################
