@@ -1,0 +1,16 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+
+data/fort_july_full.csv
+R/mspe.tex
+R/observer-sensitivity.pdf
+R/sim-scores.tex
+R/observer-sensitivity_cache/
+R/observer-sensitivity_files/
+R/observer_cache/
+R/observer_files/
+R/crps.tex
+R/loo.tex
+R/loofort.tex
