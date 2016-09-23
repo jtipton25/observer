@@ -80,6 +80,18 @@ if (!exists("./models-sens")) {
   dir.create("./models-sens")
 }
 
+if (!exists("./sim-fit")) {
+  dir.create("./sim-fit")
+}
+
+if (!exists("./observer-fit")) {
+  dir.create("./observer-fit")
+}
+
+if (!exists("./outlier-fit")) {
+  dir.create("./outlier-fit")
+}
+
 # if(!exists("./diagnostics")) {
 #   dir.create("./diagnostics")
 # }
@@ -731,56 +743,68 @@ cat("model{
 start_sim <- Sys.time()
 ```
 
-```{r PCASSVSSim, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE}
-jinits <- function(){
-  list(beta=matrix(rnorm(p, 0, 10), p, t), s_inv=runif(t, 0, 100))
-}
-
-dat <- list(Y=Y_sparse, X=X_PCA$X_pca[, 1:p], p=p, D=c(X_PCA$sdev^2),
-            H=H_sparse, t=t, tt=tt, N_total=sum(nobs))
-
-params <- c("gamma", "beta", "s_inv", "tau2_beta")
-
-samps <- foreach(i=1:n_chains, .inorder = FALSE, 
-                 .packages = c("rjags", "random"), .combine = "mcmc.combine", 
-                 .multicombine = TRUE) %dopar% {
-                   model.jags <- jags.model("./models-sens/PCASSVS.txt", data=dat,
-                                            inits=jinits,
-                                            n.chain=1, n.adapt=n_adapt)
-                   update(model.jags, n_burn)
-                   result <- coda.samples(model.jags, params, n_iter)
-                   return(result)
-                 }
-
-## Diagnostic Checks
-make_diagnostics(samps, t=t, p=p, nobs=nobs, model="pca_ssvs", type = "sim")
-
-samps <- combine.mcmc(samps)
-n_samps <- dim(samps)[1]
-
-s_invs <- matrix(0, n_samps, t)
-betas <- array(0, dim=c(n_samps, t, p))
-for(i in 1:t){
-  s_invs[, i] <- samps[, paste("s_inv[", i, "]", sep="")]
-  for(j in 1:p){
-    betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")]
+```{r PCASSVSSim, echo=FALSE, eval=TRUE}
+if (file.exists("./sim-fit/pcassvs.RData")) {
+  load("./sim-fit/pcassvs.RData")
+} else {
+  ## fit mcmc
+  jinits <- function(){
+    list(beta=matrix(rnorm(p, 0, 10), p, t), s_inv=runif(t, 0, 100))
   }
-}               
-
-summaries <- processPCASamples(t, p, n_samps, N, betas,
-                               s_invs, X_PCA$X_pca[, 1:p],
-                               Y_list, H_list, mu, nobs, n_thin)
-
-y_tilde_mean_pca_ssvs <- summaries$y_tilde_mean
-y_tilde_sd_pca_ssvs <- summaries$y_tilde_sd
-# crps_pca_ssvs <- makeCRPS(summaries$y_tilde, Z_hist, n_samps / n_thin)
-loo_pca_ssvs <- loo(matrix(unlist(summaries$log_like), n_samps / n_thin, 
-                           sum(nobs), byrow=FALSE))
-rm(samps, betas, s_invs, summaries)
+  
+  dat <- list(Y=Y_sparse, X=X_PCA$X_pca[, 1:p], p=p, D=c(X_PCA$sdev^2),
+              H=H_sparse, t=t, tt=tt, N_total=sum(nobs))
+  
+  params <- c("gamma", "beta", "s_inv", "tau2_beta")
+  
+  samps <- foreach(i=1:n_chains, .inorder = FALSE, 
+                   .packages = c("rjags", "random"), .combine = "mcmc.combine", 
+                   .multicombine = TRUE) %dopar% {
+                     model.jags <- jags.model("./models-sens/PCASSVS.txt", data=dat,
+                                              inits=jinits,
+                                              n.chain=1, n.adapt=n_adapt)
+                     update(model.jags, n_burn)
+                     result <- coda.samples(model.jags, params, n_iter)
+                     return(result)
+                   }
+  
+  ## Diagnostic Checks
+  make_diagnostics(samps, t=t, p=p, nobs=nobs, model="pca_ssvs", type = "sim")
+  
+  samps <- combine.mcmc(samps)
+  n_samps <- dim(samps)[1]
+  
+  s_invs <- matrix(0, n_samps, t)
+  betas <- array(0, dim=c(n_samps, t, p))
+  for(i in 1:t){
+    s_invs[, i] <- samps[, paste("s_inv[", i, "]", sep="")]
+    for(j in 1:p){
+      betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")]
+    }
+  }               
+  
+  summaries <- processPCASamples(t, p, n_samps, N, betas,
+                                 s_invs, X_PCA$X_pca[, 1:p],
+                                 Y_list, H_list, mu, nobs, n_thin)
+  
+  y_tilde_mean_pca_ssvs <- summaries$y_tilde_mean
+  y_tilde_sd_pca_ssvs <- summaries$y_tilde_sd
+  # crps_pca_ssvs <- makeCRPS(summaries$y_tilde, Z_hist, n_samps / n_thin)
+  loo_pca_ssvs <- loo(matrix(unlist(summaries$log_like), n_samps / n_thin, 
+                             sum(nobs), byrow=FALSE))
+  rm(samps, betas, s_invs, summaries)
+  save(y_tilde_mean_pca_ssvs, y_tilde_sd_pca_ssvs, loo_pca_ssvs, 
+       file="./sim-fit/pcassvs.RData")
+}
 ```
 
-```{r PCALassoSim, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE}
-jinits <- function(){
+```{r PCALassoSim, echo=FALSE, eval=TRUE}
+if (file.exists("./sim-fit/pcalasso.RData")) {
+  load("./sim-fit/pcalasso.RData")
+} else {
+  ## fit mcmc
+
+  jinits <- function(){
   list(beta=matrix(rnorm(p, 0, 10), p, t), s_inv=runif(t, 0, 100),
        gamma2=matrix(rgamma(p*t, 1, 1), p, t), lambda2 = rexp(t))
 }
@@ -825,10 +849,18 @@ y_tilde_sd_pca_lasso <- summaries$y_tilde_sd
 loo_pca_lasso <- loo(matrix(unlist(summaries$log_like), 
                             n_samps / n_thin, sum(nobs), byrow=FALSE))
 rm(samps, summaries, betas, s_invs)
+  save(y_tilde_mean_pca_lasso, y_tilde_sd_pca_lasso, loo_pca_lasso, 
+       file="./sim-fit/pcalasso.RData")
+}
 ```
 
-```{r tPCASSVSSim, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE}
-jinits <- function(){
+```{r tPCASSVSSim, echo=FALSE, eval=TRUE}
+if (file.exists("./sim-fit/tpcassvs.RData")) {
+  load("./sim-fit/tpcassvs.RData")
+} else {
+  ## fit mcmc
+  
+  jinits <- function(){
   list(beta=matrix(rnorm(p, 0, 10), p, t), s_inv=runif(t, 0, 100))
 }
 
@@ -879,10 +911,18 @@ y_tilde_sd_tpca_ssvs <- summaries$y_tilde_sd
 # crps_tpca_ssvs <- makeCRPS(summaries$y_tilde, Z_hist, n_samps / n_thin)
 loo_tpca_ssvs <- loo(log_like)
 rm(samps, nus, v_invs, s_invs, betas, log_like, summaries)
+  save(y_tilde_mean_tpca_ssvs, y_tilde_sd_tpca_ssvs, loo_tpca_ssvs, 
+       file="./sim-fit/tpcassvs.RData")
+}
 ```
 
-```{r tPCALassoSim, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE}
-jinits <- function(){
+```{r tPCALassoSim, echo=FALSE, eval=TRUE}
+if (file.exists("./sim-fit/tpcalasso.RData")) {
+  load("./sim-fit/tpcalasso.RData")
+} else {
+  ## fit mcmc
+  
+  jinits <- function(){
   list(beta=matrix(rnorm(p, 0, 10), p, t), s_inv=runif(t, 0, 100),
        gamma2=matrix(rgamma(p*t, 1, 1), p, t), lambda2=rexp(t))
 }
@@ -934,10 +974,18 @@ y_tilde_sd_tpca_lasso <- summaries$y_tilde_sd
 # crps_tpca_lasso <- makeCRPS(summaries$y_tilde, Z_hist, n_samps / n_thin)
 loo_tpca_lasso <- loo(log_like)
 rm(samps, nus, v_invs, s_invs, betas, log_like, summaries)
+  save(y_tilde_mean_tpca_lasso, y_tilde_sd_tpca_lasso, loo_tpca_lasso, 
+       file="./sim-fit/tpcalasso.RData")
+}
 ```
 
-```{r pPCASSVSSim, cache=TRUE, echo=FALSE, cache.lazy=FALSE, eval=TRUE}
-jinits <- function(){
+```{r pPCASSVSSim, echo=FALSE, eval=TRUE}
+if (file.exists("./sim-fit/ppcassvs.RData")) {
+  load("./sim-fit/ppcassvs.RData")
+} else {
+  ## fit mcmc
+  
+  jinits <- function(){
   list(s_beta_inv=runif(1, 0, 10), beta=matrix(rnorm(p, 0, 10), p, t),
        tau_inv=runif(t, 0, 10), s_inv=runif(1, 0, 1))
 }
@@ -984,10 +1032,18 @@ y_tilde_sd_ppca_ssvs <- summaries$y_tilde_sd
 loo_ppca_ssvs <- loo(matrix(unlist(summaries$log_like), n_samps / n_thin,
                             sum(nobs), byrow=FALSE))
 rm(samps, summaries, betas, s2s, tau2s)
+  save(y_tilde_mean_ppca_ssvs, y_tilde_sd_ppca_ssvs, loo_ppca_ssvs, 
+       file="./sim-fit/ppcassvs.RData")
+}
 ```
 
-```{r pPCALassoSim, cache=TRUE, echo=FALSE, cache.lazy=FALSE, eval=TRUE}
-jinits <- function(){
+```{r pPCALassoSim, echo=FALSE, eval=TRUE}
+if (file.exists("./sim-fit/ppcalasso.RData")) {
+  load("./sim-fit/ppcalasso.RData")
+} else {
+  ## fit mcmc
+  
+  jinits <- function(){
   list(beta=matrix(rnorm(p * t, 0, 10), p, t), tau_inv=runif(t, 0, 100), 
        s_inv=runif(1, 0, 10))
 }
@@ -1035,10 +1091,18 @@ y_tilde_sd_ppca_lasso <- summaries$y_tilde_sd
 loo_ppca_lasso <- loo(matrix(unlist(summaries$log_like), 
                              n_samps / n_thin, sum(nobs), byrow=FALSE))
 rm(samps, summaries, betas, s2s, tau2s)
+  save(y_tilde_mean_ppca_lasso, y_tilde_sd_ppca_lasso, loo_ppca_lasso, 
+       file="./sim-fit/ppcalasso.RData")
+}
 ```
 
-```{r tpPCASSVSSim, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE}
-jinits <- function(){   
+```{r tpPCASSVSSim, echo=FALSE, eval=TRUE}
+if (file.exists("./sim-fit/tppcassvs.RData")) {
+  load("./sim-fit/tppcassvs.RData")
+} else {
+  ## fit mcmc
+  
+  jinits <- function(){   
   list(beta=matrix(rnorm(p, 0, 10), p, t), s_inv=runif(1, 0, 10), 
        tau_inv=runif(t, 0, 100)) 
 } 
@@ -1092,10 +1156,18 @@ y_tilde_sd_tppca_ssvs <- summaries$y_tilde_sd
 # crps_tppca_ssvs <- makeCRPS(summaries$y_tilde, Z_hist, n_samps / n_thin)
 loo_tppca_ssvs <- loo(log_like)
 rm(samps, nus, v_invs, s2s, tau2s, betas, log_like, summaries)
+  save(y_tilde_mean_tppca_ssvs, y_tilde_sd_tppca_ssvs, loo_tppca_ssvs, 
+       file="./sim-fit/tppcassvs.RData")
+}
 ```
 
-```{r tpPCALassoSim, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE}
-jinits <- function(){
+```{r tpPCALassoSim, echo=FALSE, eval=TRUE}
+if (file.exists("./sim-fit/pcalasso.RData")) {
+  load("./sim-fit/tppcalasso.RData")
+} else {
+  ## fit mcmc
+  
+  jinits <- function(){
   list(beta=matrix(rnorm(p, 0, 10), p, t),  s_inv=runif(1, 0, 10),
        tau_inv=runif(t, 0, 100), gamma2=matrix(rgamma(p*t, 1, 1), p, t),
        lambda2=rexp(t))
@@ -1150,6 +1222,9 @@ y_tilde_sd_tppca_lasso <- summaries$y_tilde_sd
 # crps_tppca_lasso <- makeCRPS(summaries$y_tilde, Z_hist, n_samps / n_thin)
 loo_tppca_lasso <- loo(log_like)
 rm(samps, nus, v_invs, s2s, tau2s, betas, log_like, summaries)
+  save(y_tilde_mean_tppca_lasso, y_tilde_sd_tppca_lasso, loo_tppca_lasso, 
+       file="./sim-fit/tppcalasso.RData")
+}
 ```
 
 ## Process Simulated Results
@@ -1513,55 +1588,67 @@ image.scale(prism[[i]], col=rev(colorRampPalette(brewer.pal(8, "RdBu"))(64)),
 start_observer <- Sys.time()
 ```
 
-```{r PCASSVSObserver, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE}
-jinits <- function(){
-  list(beta=matrix(rnorm(p, 0, 10), p, t), s_inv=runif(t, 0, 100))
-}
-
-dat <- list(Y=Y_sparse, X=X_PCA$X_pca[, 1:p], p=p, D=c(X_PCA$sdev^2),
-            H=H_sparse, t=t, tt=tt, N_total=sum(nobs))
-
-params <- c("gamma", "beta", "s_inv", "tau2_beta")
-
-samps <- foreach(i=1:n_chains, .inorder = FALSE,
-                 .packages = c("rjags", "random"), .combine = "mcmc.combine",
-                 .multicombine = TRUE) %dopar% {
-                   model.jags <- jags.model("./models-sens/PCASSVS.txt",
-                                            data=dat, inits=jinits, n.chain=1, n.adapt=n_adapt)
-                   update(model.jags, n_burn)
-                   result <- coda.samples(model.jags, params, n_iter)
-                   return(result)
-                 }
-
-## Diagnostic Checks
-make_diagnostics(samps, t=t, p=p, nobs=nobs,  model="pca_ssvs", type = "observer")
-
-
-samps <- combine.mcmc(samps)
-n_samps <- dim(samps)[1]
-
-s_invs <- matrix(0, n_samps, t)
-betas <- array(0, dim=c(n_samps, t, p))
-for(i in 1:t){
-  s_invs[, i] <- samps[, paste("s_inv[", i, "]", sep="")]
-  for(j in 1:p){
-    betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")]
+```{r PCASSVSObserver, echo=FALSE, eval=TRUE}
+if (file.exists("./observer-fit/pcassvs.RData")) {
+  load("./observer-fit/pcassvs.RData")
+} else {
+  ## fit mcmc
+  jinits <- function(){
+    list(beta=matrix(rnorm(p, 0, 10), p, t), s_inv=runif(t, 0, 100))
   }
+  
+  dat <- list(Y=Y_sparse, X=X_PCA$X_pca[, 1:p], p=p, D=c(X_PCA$sdev^2),
+              H=H_sparse, t=t, tt=tt, N_total=sum(nobs))
+  
+  params <- c("gamma", "beta", "s_inv", "tau2_beta")
+  
+  samps <- foreach(i=1:n_chains, .inorder = FALSE,
+                   .packages = c("rjags", "random"), .combine = "mcmc.combine",
+                   .multicombine = TRUE) %dopar% {
+                     model.jags <- jags.model("./models-sens/PCASSVS.txt",
+                                              data=dat, inits=jinits, n.chain=1, n.adapt=n_adapt)
+                     update(model.jags, n_burn)
+                     result <- coda.samples(model.jags, params, n_iter)
+                     return(result)
+                   }
+  
+  ## Diagnostic Checks
+  make_diagnostics(samps, t=t, p=p, nobs=nobs,  model="pca_ssvs", type = "observer")
+  
+  
+  samps <- combine.mcmc(samps)
+  n_samps <- dim(samps)[1]
+  
+  s_invs <- matrix(0, n_samps, t)
+  betas <- array(0, dim=c(n_samps, t, p))
+  for(i in 1:t){
+    s_invs[, i] <- samps[, paste("s_inv[", i, "]", sep="")]
+    for(j in 1:p){
+      betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")]
+    }
+  }
+  
+  summaries <- processPCASamples(t, p, n_samps, N, betas, s_invs,
+                                 X_PCA$X_pca[, 1:p], Y.list, H.list, mu, nobs,
+                                 n_thin, preds=FALSE)
+  
+  y_tilde_mean_pca_ssvs_fort <- summaries$y_tilde_mean
+  y_tilde_sd_pca_ssvs_fort <- summaries$y_tilde_sd
+  loo_pca_ssvs_fort <- loo(matrix(unlist(summaries$log_like),
+                                  n_samps / n_thin, sum(nobs), byrow=FALSE))
+  rm(samps, summaries, betas, s_invs)
+  save(y_tilde_mean_pca_ssvs_fort, y_tilde_sd_pca_ssvs_fort, loo_pca_ssvs_fort, 
+       file="./observer-fit/pcassvs.RData")
 }
-
-summaries <- processPCASamples(t, p, n_samps, N, betas, s_invs,
-                               X_PCA$X_pca[, 1:p], Y.list, H.list, mu, nobs,
-                               n_thin, preds=FALSE)
-
-y_tilde_mean_pca_ssvs_fort <- summaries$y_tilde_mean
-y_tilde_sd_pca_ssvs_fort <- summaries$y_tilde_sd
-loo_pca_ssvs_fort <- loo(matrix(unlist(summaries$log_like),
-                                n_samps / n_thin, sum(nobs), byrow=FALSE))
-rm(samps, summaries, betas, s_invs)
 ```
 
-```{r PCALassoObserver, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE}
-jinits <- function(){
+```{r PCALassoObserver, echo=FALSE, eval=TRUE}
+if (file.exists("./observer-fit/pcalasso.RData")) {
+  load("./observer-fit/pcalasso.RData")
+} else {
+  ## fit mcmc
+
+  jinits <- function(){
   list(beta=matrix(rnorm(p, 0, 10), p, t), s_inv=runif(t, 0, 100),
        gamma2=matrix(rgamma(p*t, 1, 1), p, t), lambda2 = rexp(t))
 }
@@ -1605,10 +1692,17 @@ y_tilde_sd_pca_lasso_fort <- summaries$y_tilde_sd
 loo_pca_lasso_fort <- loo(matrix(unlist(summaries$log_like),
                                  n_samps / n_thin, sum(nobs), byrow=FALSE))
 rm(samps, summaries, betas, s_invs)
+  save(y_tilde_mean_pca_lasso_fort, y_tilde_sd_pca_lasso_fort, loo_pca_lasso_fort, 
+       file="./observer-fit/pcalasso.RData")
+}
 ```
 
-```{r tPCASSVSObserver, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE}
-jinits <- function(){
+```{r tPCASSVSObserver, echo=FALSE, eval=TRUE}
+if (file.exists("./observer-fit/tpcassvs.RData")) {
+  load("./observer-fit/tpcassvs.RData")
+} else {
+  ## fit mcmc
+  jinits <- function(){
   list(beta=matrix(rnorm(p, 0, 10), p, t), s_inv=runif(t, 0, 100))
 }
 
@@ -1659,11 +1753,18 @@ y_tilde_mean_tpca_ssvs_fort <- summaries$y_tilde_mean
 y_tilde_sd_tpca_ssvs_fort <- summaries$y_tilde_sd
 loo_tpca_ssvs_fort <- loo(log_like)
 rm(samps, nus, v_invs, s_invs, betas, log_like, summaries)
+  save(y_tilde_mean_tpca_ssvs_fort, y_tilde_sd_tpca_ssvs_fort, loo_tpca_ssvs_fort, 
+       file="./observer-fit/tpcassvs.RData")
+}
 ```
 
 
-```{r tPCALassoObserver, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE}
-jinits <- function(){
+```{r tPCALassoObserver, echo=FALSE, eval=TRUE}
+if (file.exists("./observer-fit/tpcalasso.RData")) {
+  load("./observer-fit/tpcalasso.RData")
+} else {
+  ## fit mcmc
+  jinits <- function(){
   list(beta=matrix(rnorm(p, 0, 10), p, t), s_inv=runif(t, 0, 100),
        gamma2=matrix(rgamma(p*t, 1, 1), p, t), lambda2 = rexp(t))
 }
@@ -1714,10 +1815,17 @@ y_tilde_mean_tpca_lasso_fort <- summaries$y_tilde_mean
 y_tilde_sd_tpca_lasso_fort <- summaries$y_tilde_sd
 loo_tpca_lasso_fort <- loo(log_like)
 rm(samps, nus, v_invs, s_invs, betas, log_like, summaries)
+  save(y_tilde_mean_tpca_lasso_fort, y_tilde_sd_tpca_lasso_fort,
+       loo_tpca_lasso_fort, file="./observer-fit/tpcalasso.RData")
+}
 ```
 
-```{r pPCASSVSObserver, cache=TRUE, echo=FALSE, cache.lazy=FALSE, eval=TRUE}
-jinits <- function(){
+```{r pPCASSVSObserver, echo=FALSE, eval=TRUE}
+if (file.exists("./observer-fit/ppcassvs.RData")) {
+  load("./observer-fit/ppcassvs.RData")
+} else {
+  ## fit mcmc
+  jinits <- function(){
   list(s_beta_inv=runif(1, 0, 10), beta=matrix(rnorm(p, 0, 10), p, t),
        tau_inv=runif(t, 0, 100), s_inv=runif(1, 0, 10))
 }
@@ -1762,10 +1870,17 @@ y_tilde_sd_ppca_ssvs_fort <- summaries$y_tilde_sd
 loo_ppca_ssvs_fort <- loo(matrix(unlist(summaries$log_like),
                                  n_samps / n_thin, sum(nobs), byrow=FALSE))
 rm(samps, summaries, betas, s2s, tau2s)
+  save(y_tilde_mean_ppca_ssvs_fort, y_tilde_sd_ppca_ssvs_fort, 
+       loo_ppca_ssvs_fort, file="./observer-fit/ppcassvs.RData")
+}
 ```
 
-```{r pPCALassoObserver, cache=TRUE, echo=FALSE, cache.lazy=FALSE, eval=TRUE}
-jinits <- function(){
+```{r pPCALassoObserver, echo=FALSE, eval=TRUE}
+if (file.exists("./observer-fit/ppcalasso.RData")) {
+  load("./observer-fit/ppcalasso.RData")
+} else {
+  ## fit mcmc
+  jinits <- function(){
   list(beta=matrix(rnorm(t*p, 0, 10), p, t), tau_inv=runif(t, 0, 100),
        s_inv=runif(1, 0, 10))
 }
@@ -1810,10 +1925,17 @@ y_tilde_sd_ppca_lasso_fort <- summaries$y_tilde_sd
 loo_ppca_lasso_fort <- loo(matrix(unlist(summaries$log_like),
                                   n_samps / n_thin, sum(nobs), byrow=FALSE))
 rm(samps, summaries, betas, s2s, tau2s)
+  save(y_tilde_mean_ppca_lasso_fort, y_tilde_sd_ppca_lasso_fort,
+       loo_ppca_lasso_fort, file="./observer-fit/ppcalasso.RData")
+}
 ```
 
-```{r tpPCASSVSObserver, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE}
-jinits <- function(){
+```{r tpPCASSVSObserver, echo=FALSE, eval=TRUE}
+if (file.exists("./observer-fit/tppcassvs.RData")) {
+  load("./observer-fit/tppcassvs.RData")
+} else {
+  ## fit mcmc
+  jinits <- function(){
   list(beta=matrix(rnorm(p, 0, 10), p, t), s_inv=runif(1, 0, 10),
        tau_inv=runif(t, 0, 100)) }
 
@@ -1866,10 +1988,18 @@ y_tilde_mean_tppca_ssvs_fort <- summaries$y_tilde_mean
 y_tilde_sd_tppca_ssvs_fort <- summaries$y_tilde_sd
 loo_tppca_ssvs_fort <- loo(log_like)
 rm(samps, nus, v_invs, s2s, tau2s, betas, log_like, summaries)
+  save(y_tilde_mean_tppca_ssvs_fort, y_tilde_sd_tppca_ssvs_fort, 
+       loo_tppca_ssvs_fort, file="./observer-fit/tppcassvs.RData")
+}
 ```
 
-```{r tpPCALassoObserver, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE}
-jinits <- function(){
+```{r tpPCALassoObserver, echo=FALSE, eval=TRUE}
+if (file.exists("./observer-fit/tppcalasso.RData")) {
+  load("./observer-fit/tppcalasso.RData")
+} else {
+  ## fit mcmc
+  
+  jinits <- function(){
   list(beta=matrix(rnorm(p, 0, 10), p, t),  s_inv=runif(1, 0, 10),
        tau_inv=runif(t, 0, 100), gamma2=matrix(rgamma(p*t, 1, 1), p, t),
        lambda2=rexp(t))
@@ -1924,6 +2054,9 @@ y_tilde_mean_tppca_lasso_fort <- summaries$y_tilde_mean
 y_tilde_sd_tppca_lasso_fort <- summaries$y_tilde_sd
 loo_tppca_lasso_fort <- loo(log_like)
 rm(samps, nus, v_invs, s2s, tau2s, betas, log_like, summaries)
+  save(y_tilde_mean_tppca_lasso_fort, y_tilde_sd_tppca_lasso_fort,
+       loo_tppca_lasso_fort, file="./observer-fit/tppcalasso.RData")
+}
 ```
 
 ## Process Observer data predictions
@@ -1999,8 +2132,12 @@ H_sparse_outlier <- H_sparse[-outlier_idx]
 start_outlier <- Sys.time()
 ```
 
-```{r PCASSVSOutlier, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE}
-jinits <- function(){
+```{r PCASSVSOutlier, echo=FALSE, eval=TRUE}
+if (file.exists("./outlier-fit/pcassvs.RData")) {
+  load("./outlier-fit/pcassvs.RData")
+} else {
+  ## fit mcmc
+  jinits <- function(){
   list(beta=matrix(rnorm(p, 0, 10), p, t), s_inv=runif(t, 0, 100))
 }
 
@@ -2044,10 +2181,17 @@ y_tilde_sd_pca_ssvs_outlier <- summaries$y_tilde_sd
 loo_pca_ssvs_outlier <- loo(matrix(unlist(summaries$log_like),
                                         n_samps / n_thin, sum(nobs_outlier), byrow=FALSE))
 rm(samps, summaries, betas, s_invs)
+  save(y_tilde_mean_pca_ssvs_outlier, y_tilde_sd_pca_ssvs_outlier,
+       loo_pca_ssvs_outlier, file="./outlier-fit/pcassvs.RData")
+}
 ```
 
-```{r PCALassoOutlier, eval=TRUE, cache=TRUE, echo=FALSE, eval=TRUE}
-jinits <- function(){
+```{r PCALassoOutlier, eval=TRUE, echo=FALSE, eval=TRUE}
+if (file.exists("./outlier-fit/pcalasso.RData")) {
+  load("./outlier-fit/pcalasso.RData")
+} else {
+  ## fit mcmc
+  jinits <- function(){
   list(beta=matrix(rnorm(p, 0, 10), p, t), s_inv=runif(t, 0, 100),
        gamma2=matrix(rgamma(p*t, 1, 1), p, t), lambda2 = rexp(t))
 }
@@ -2092,10 +2236,18 @@ y_tilde_sd_pca_lasso_outlier <- summaries$y_tilde_sd
 loo_pca_lasso_outlier <- loo(matrix(unlist(summaries$log_like),
                                          n_samps / n_thin, sum(nobs_outlier), byrow=FALSE))
 rm(samps, summaries, betas, s_invs)
+  save(y_tilde_mean_pca_lasso_outlier, y_tilde_sd_pca_lasso_outlier,
+       loo_pca_lasso_outlier, file="./outlier-fit/pcalasso.RData")
+}
+
 ```
 
-```{r tPCASSVSOutlier, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE}
-jinits <- function(){
+```{r tPCASSVSOutlier, echo=FALSE, eval=TRUE}
+if (file.exists("./outlier-fit/tpcassvs.RData")) {
+  load("./outlier-fit/tpcassvs.RData")
+} else {
+  ## fit mcmc
+  jinits <- function(){
   list(beta=matrix(rnorm(p, 0, 10), p, t), s_inv=runif(t, 0, 100))
 }
 
@@ -2146,10 +2298,18 @@ y_tilde_mean_tpca_ssvs_outlier <- summaries$y_tilde_mean
 y_tilde_sd_tpca_ssvs_outlier <- summaries$y_tilde_sd
 loo_tpca_ssvs_outlier <- loo(log_like)
 rm(samps, nus, v_invs, s_invs, betas, log_like, summaries)
+  save(y_tilde_mean_tpca_ssvs_outlier, y_tilde_sd_tpca_ssvs_outlier,
+       loo_tpca_ssvs_outlier, file="./outlier-fit/tpcassvs.RData")
+}
+
 ```
 
-```{r tPCALassoOutlier, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE}
-jinits <- function(){
+```{r tPCALassoOutlier, echo=FALSE, eval=TRUE}
+if (file.exists("./outlier-fit/tpcalasso.RData")) {
+  load("./outlier-fit/tpcalasso.RData")
+} else {
+  ## fit mcmc
+  jinits <- function(){
   list(beta=matrix(rnorm(p, 0, 10), p, t), s_inv=runif(t, 0, 100),
        gamma2=matrix(rgamma(p*t, 1, 1), p, t), lambda2 = rexp(t))
 }
@@ -2200,10 +2360,18 @@ y_tilde_mean_tpca_lasso_outlier <- summaries$y_tilde_mean
 y_tilde_sd_tpca_lasso_outlier <- summaries$y_tilde_sd
 loo_tpca_lasso_outlier <- loo(log_like)
 rm(samps, nus, v_invs, s_invs, betas, log_like, summaries)
+  save(y_tilde_mean_tpca_lasso_outlier, y_tilde_sd_tpca_lasso_outlier,
+       loo_tpca_lasso_outlier, file="./outlier-fit/tpcalasso.RData")
+}
+
 ```
 
-```{r pPCASSVSOutlier, cache=TRUE, echo=FALSE, cache.lazy=FALSE, eval=TRUE}
-jinits <- function(){
+```{r pPCASSVSOutlier, echo=FALSE, eval=TRUE}
+if (file.exists("./outlier-fit/ppcassvs.RData")) {
+  load("./outlier-fit/ppcassvs.RData")
+} else {
+  ## fit mcmc
+  jinits <- function(){
   list(s_beta_inv=runif(1, 0, 10), beta=matrix(rnorm(p, 0, 10), p, t),
        tau_inv=runif(t, 0, 100), s_inv=runif(1, 0, 10))
 }
@@ -2250,10 +2418,18 @@ y_tilde_sd_ppca_ssvs_outlier <- summaries$y_tilde_sd
 loo_ppca_ssvs_outlier <- loo(matrix(unlist(summaries$log_like),
                                          n_samps / n_thin, sum(nobs_outlier), byrow=FALSE))
 rm(samps, summaries, betas, s2s, tau2s)
+  save(y_tilde_mean_ppca_ssvs_outlier, y_tilde_sd_ppca_ssvs_outlier,
+       loo_ppca_ssvs_outlier, file="./outlier-fit/ppcassvs.RData")
+}
+
 ```
 
-```{r pPCALassoOutlier, cache=TRUE, echo=FALSE, cache.lazy=FALSE, eval=TRUE}
-jinits <- function(){
+```{r pPCALassoOutlier, echo=FALSE, eval=TRUE}
+if (file.exists("./outlier-fit/ppcalasso.RData")) {
+  load("./outlier-fit/ppcalasso.RData")
+} else {
+  ## fit mcmc
+  jinits <- function(){
   list(beta=matrix(rnorm(t*p, 0, 10), p, t), tau_inv=runif(t, 0, 100),
        s_inv=runif(1, 0, 10))
 }
@@ -2300,10 +2476,18 @@ y_tilde_sd_ppca_lasso_outlier <- summaries$y_tilde_sd
 loo_ppca_lasso_outlier <- loo(matrix(unlist(summaries$log_like),
                                           n_samps / n_thin, sum(nobs_outlier), byrow=FALSE))
 rm(samps, summaries, betas, s2s, tau2s)
+  save(y_tilde_mean_ppca_lasso_outlier, y_tilde_sd_ppca_lasso_outlier,
+       loo_ppca_lasso_outlier, file="./outlier-fit/ppcalasso.RData")
+}
+
 ```
 
-```{r tpPCASSVSOutlier, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE}
-jinits <- function(){
+```{r tpPCASSVSOutlier, echo=FALSE, eval=TRUE}
+if (file.exists("./outlier-fit/tppcassvs.RData")) {
+  load("./outlier-fit/tppcassvs.RData")
+} else {
+  ## fit mcmc
+  jinits <- function(){
   list(beta=matrix(rnorm(p, 0, 10), p, t), s_inv=runif(1, 0, 10),
        tau_inv=runif(t, 0, 100)) }
 
@@ -2357,10 +2541,18 @@ y_tilde_mean_tppca_ssvs_outlier <- summaries$y_tilde_mean
 y_tilde_sd_tppca_ssvs_outlier <- summaries$y_tilde_sd
 loo_tppca_ssvs_outlier <- loo(log_like)
 rm(samps, nus, v_invs, s2s, tau2s, betas, log_like, summaries)
+  save(y_tilde_mean_tppca_ssvs_outlier, y_tilde_sd_tppca_ssvs_outlier,
+       loo_tppca_ssvs_outlier, file="./outlier-fit/tppcassvs.RData")
+}
+
 ```
 
-```{r tpPCALassoOutlier, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE}
-jinits <- function(){
+```{r tpPCALassoOutlier, echo=FALSE, eval=TRUE}
+if (file.exists("./outlier-fit/tppcalasso.RData")) {
+  load("./outlier-fit/tppcalasso.RData")
+} else {
+  ## fit mcmc
+  jinits <- function(){
   list(beta=matrix(rnorm(p, 0, 10), p, t),  s_inv=runif(1, 0, 10),
        tau_inv=runif(t, 0, 100), gamma2=matrix(rgamma(p*t, 1, 1), p, t),
        lambda2=rexp(t))
@@ -2416,6 +2608,10 @@ y_tilde_mean_tppca_lasso_outlier <- summaries$y_tilde_mean
 y_tilde_sd_tppca_lasso_outlier <- summaries$y_tilde_sd
 loo_tppca_lasso_outlier <- loo(log_like)
 rm(samps, nus, v_invs, s2s, tau2s, betas, log_like, summaries)
+  save(y_tilde_mean_tppca_lasso_outlier, y_tilde_sd_tppca_lasso_outlier,
+       loo_tppca_lasso_outlier, file="./outlier-fit/tppcalasso.RData")
+}
+
 ```
 
 ```{r, cache=TRUE}
@@ -2542,10 +2738,10 @@ plot(vstar, type = "b", main = "Variogram: robust PPCA LASSO small scale")
 ```{r loo_fort, echo=FALSE, message=FALSE, include=FALSE, warning=FALSE, fig.height=6, fig.width=12, eval=TRUE}
 ## PCR
 par(mfrow=c(1, 2), mar=c(3.5, 3.5, 1.75, 1) + 0.1, oma=c(0, 0, 0.25, 0.25) + 0.1, mgp=c(2, 1, 0))
-plot_k(loo_tppca_lasso_fort$pareto_k, main="LASSO robust pPCR", ylim=c(0, 3.25),
+plot_k(loo_pca_lasso_fort$pareto_k, main="LASSO PCR reconstruction", ylim=c(0, 4.0),
        cex.axis=1.5, cex.main=1.5, cex.lab=1.5)
 mtext("(a)",side=3,line=-1.9,adj=c(0.1),cex=2,col="black")
-plot_k(loo_tppca_lasso_outlier$pareto_k, main="LASSO robust pPCR outlier removed", ylim=c(0, 3.25),
+plot_k(loo_pca_lasso_outlier$pareto_k, main="LASSO PCR outlier removed", ylim=c(0, 4.0),
        cex.axis=1.5, cex.main=1.5, cex.lab=1.5)
 mtext("(b)",side=3,line=-1.9,adj=c(0.1),cex=2,col="black")
 ```
