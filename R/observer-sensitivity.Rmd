@@ -1967,1309 +1967,1309 @@ observer_time <- finish_observer - start_observer
 observer_time
 ```
 
-<!-- ## Remove outlier from data -->
-
-<!-- ```{r fortDataRemoveOutlier, echo=FALSE, eval=TRUE} -->
-<!-- # data(fortFunctions) -->
-
-<!-- mu_outlier <- mu -->
-<!-- nobs_outlier <- nobs -->
-<!-- outlier_idx <- which(loo_pca_ssvs_fort$pareto_k == max(loo_pca_ssvs_fort$pareto_k)) -->
-<!-- nobs_outlier[tt[outlier_idx]]<- nobs_outlier[tt[outlier_idx]] - 1 -->
-<!-- Y.list.outlier <- Y.list -->
-<!-- Y_sparse_outlier <- Y_sparse -->
-<!-- H.list.outlier <- H.list -->
-<!-- tt_outlier <- tt[-outlier_idx] -->
-
-
-<!-- Y.list.outlier[[tt[outlier_idx]]] <- -->
-<!--   Y.list.outlier[[tt[outlier_idx]]][-which(Y.list.outlier[[tt[outlier_idx]]] ==  -->
-<!--                                              min(Y.list.outlier[[tt[outlier_idx]]]))] -->
-<!-- mu_outlier[tt[outlier_idx]] <- mean(Y.list.outlier[[tt[outlier_idx]]]) -->
-<!-- H.list.outlier[[tt[outlier_idx]]] <- -->
-<!--   H.list.outlier[[tt[outlier_idx]]][-which(Y.list.outlier[[tt[outlier_idx]]] ==  -->
-<!--                                              min(Y.list.outlier[[tt[outlier_idx]]]))] -->
-<!-- Y_sparse_outlier <- Y_sparse[-outlier_idx] -->
-<!-- H_sparse_outlier <- H_sparse[-outlier_idx] -->
-<!-- ``` -->
-
-<!-- ## Re-fit candidate models -->
-
-<!-- ```{r, cache=TRUE} -->
-<!-- start_outlier <- Sys.time() -->
-<!-- ``` -->
-
-<!-- ```{r PCASSVSOutlier, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE} -->
-<!-- jinits <- function(){ -->
-<!--   list(beta=matrix(rnorm(p, 0, 10), p, t), s_inv=runif(t, 0, 100)) -->
-<!-- } -->
-
-<!-- dat <- list(Y=Y_sparse_outlier, X=X_PCA$X_pca[, 1:p], p=p, D=c(X_PCA$sdev^2), -->
-<!--             H=H_sparse_outlier, t=t, tt=tt_outlier, N_total=length(tt_outlier))  -->
-
-<!-- params <- c("gamma", "beta", "s_inv", "tau2_beta") -->
-
-<!-- samps <- foreach(i=1:n_chains, .inorder = FALSE,  -->
-<!--                  .packages = c("rjags", "random"), .combine = "mcmc.combine",  -->
-<!--                  .multicombine = TRUE) %dopar% { -->
-<!--                    model.jags <- jags.model("./models-sens/PCASSVS.txt", -->
-<!--                                             data=dat, inits=jinits, n.chain=1, n.adapt=n_adapt) -->
-<!--                    update(model.jags, n_burn) -->
-<!--                    result <- coda.samples(model.jags, params, n_iter) -->
-<!--                    return(result) -->
-<!--                  } -->
-
-<!-- ## Diagnostic Checks -->
-<!-- make_diagnostics(samps, t=t, p=p, nobs=nobs,  model="pca_ssvs", type = "outlier-removed") -->
-
-<!-- samps <- combine.mcmc(samps) -->
-<!-- n_samps <- dim(samps)[1] -->
-
-<!-- s_invs <- matrix(0, n_samps, t) -->
-<!-- betas <- array(0, dim=c(n_samps, t, p)) -->
-<!-- for(i in 1:t){ -->
-<!--   s_invs[, i] <- samps[, paste("s_inv[", i, "]", sep="")] -->
-<!--   for(j in 1:p){ -->
-<!--     betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")] -->
-<!--   } -->
-<!-- }                -->
-
-<!-- summaries <- processPCASamples(t, p, n_samps, N, betas, s_invs, -->
-<!--                                X_PCA$X_pca[, 1:p], Y.list.outlier,  -->
-<!--                                H.list.outlier,  mu_outlier, nobs_outlier, n_thin,  -->
-<!--                                preds=FALSE) -->
-
-<!-- y_tilde_mean_pca_ssvs_outlier <- summaries$y_tilde_mean -->
-<!-- y_tilde_sd_pca_ssvs_outlier <- summaries$y_tilde_sd -->
-<!-- loo_pca_ssvs_outlier <- loo(matrix(unlist(summaries$log_like), -->
-<!--                                         n_samps / n_thin, sum(nobs_outlier), byrow=FALSE)) -->
-<!-- rm(samps, summaries, betas, s_invs) -->
-<!-- ``` -->
-
-<!-- ```{r PCALassoOutlier, eval=TRUE, cache=TRUE, echo=FALSE, eval=TRUE} -->
-<!-- jinits <- function(){ -->
-<!--   list(beta=matrix(rnorm(p, 0, 10), p, t), s_inv=runif(t, 0, 100), -->
-<!--        gamma2=matrix(rgamma(p*t, 1, 1), p, t), lambda2 = rexp(t)) -->
-<!-- }  -->
-
-<!-- dat <- list(Y=Y_sparse_outlier, X=X_PCA$X_pca[, 1:p], p=p, H=H_sparse_outlier,  -->
-<!--             t=t, tt=tt_outlier, N_total=length(tt_outlier), D=c(X_PCA$sdev^2)) -->
-
-<!-- params <- c("beta", "s_inv", "gamma2", "lambda2")  -->
-
-<!-- samps <- foreach(i=1:n_chains, .inorder = FALSE,  -->
-<!--                  .packages = c("rjags", "random"), .combine = "mcmc.combine",  -->
-<!--                  .multicombine = TRUE) %dopar% { -->
-<!--                    model.jags <- jags.model("./models-sens/PCALasso.txt", -->
-<!--                                             data=dat, inits=jinits, n.chain=1, n.adapt=n_adapt) -->
-<!--                    update(model.jags, n_burn) -->
-<!--                    result <- coda.samples(model.jags, params, n_iter) -->
-<!--                    return(result) -->
-<!--                  } -->
-
-<!-- ## Diagnostic Checks -->
-<!-- make_diagnostics(samps, t=t, p=p, nobs=nobs,  model="pca_lasso", type="outlier-removed") -->
-
-<!-- samps <- combine.mcmc(samps) -->
-<!-- n_samps <- dim(samps)[1] -->
-
-<!-- s_invs <- matrix(0, n_samps, t) -->
-<!-- betas <- array(0, dim=c(n_samps, t, p)) -->
-<!-- for(i in 1:t){ -->
-<!--   s_invs[, i] <- samps[, paste("s_inv[", i, "]", sep="")] -->
-<!--   for(j in 1:p){ -->
-<!--     betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")] -->
-<!--   } -->
-<!-- }                -->
-
-<!-- summaries <- processPCASamples(t, p, n_samps, N, betas, s_invs,  -->
-<!--                                X_PCA$X_pca[, 1:p], Y.list.outlier,  -->
-<!--                                H.list.outlier, mu_outlier, nobs_outlier, n_thin,  -->
-<!--                                preds=FALSE) -->
-
-<!-- y_tilde_mean_pca_lasso_outlier <- summaries$y_tilde_mean  -->
-<!-- y_tilde_sd_pca_lasso_outlier <- summaries$y_tilde_sd -->
-<!-- loo_pca_lasso_outlier <- loo(matrix(unlist(summaries$log_like), -->
-<!--                                          n_samps / n_thin, sum(nobs_outlier), byrow=FALSE)) -->
-<!-- rm(samps, summaries, betas, s_invs) -->
-<!-- ``` -->
-
-<!-- ```{r tPCASSVSOutlier, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE} -->
-<!-- jinits <- function(){ -->
-<!--   list(beta=matrix(rnorm(p, 0, 10), p, t), s_inv=runif(t, 0, 100)) -->
-<!-- } -->
-
-<!-- dat <- list(Y=Y_sparse_outlier, X=X_PCA$X_pca[, 1:p], p=p, D=c(X_PCA$sdev^2), -->
-<!--             H=H_sparse_outlier, t=t, tt=tt_outlier, N_total=length(tt_outlier)) -->
-
-<!-- params <- c("gamma", "beta", "s_inv", "tau2_beta", "nu", "v_inv", "log_like") -->
-
-<!-- samps <- foreach(i=1:n_chains, .inorder = FALSE,  -->
-<!--                  .packages = c("rjags", "random"), .combine = "mcmc.combine",  -->
-<!--                  .multicombine = TRUE) %dopar% { -->
-<!--                    model.jags <- jags.model("./models-sens/tPCASSVS.txt", -->
-<!--                                             data=dat, inits=jinits, n.chain=1, n.adapt=n_adapt) -->
-<!--                    update(model.jags, n_burn) -->
-<!--                    result <- coda.samples(model.jags, params, n_iter) -->
-<!--                    return(result) -->
-<!--                  } -->
-
-<!-- ## Diagnostic Checks -->
-<!-- make_diagnostics(samps, t=t, p=p, nobs=nobs,  model="tpca_ssvs", type="outlier-removed") -->
-
-<!-- samps <- combine.mcmc(samps) -->
-<!-- n_samps <- dim(samps)[1] -->
-
-<!-- nus <- matrix(0, n_samps, t) -->
-<!-- v_invs <- matrix(0, n_samps, sum(nobs_outlier)) -->
-<!-- s_invs <- matrix(0, n_samps, t) -->
-<!-- betas <- array(0, dim=c(n_samps, t, p)) -->
-<!-- log_like <- matrix(0, n_samps, sum(nobs_outlier)) -->
-<!-- for(i in 1:t){ -->
-<!--   s_invs[, i] <- samps[, paste("s_inv[", i, "]", sep="")] -->
-<!--   nus[, i] <- samps[, paste("nu[", i, "]", sep="")] -->
-<!--   for(j in 1:p){ -->
-<!--     betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")] -->
-<!--   } -->
-<!-- }                -->
-<!-- for(i in 1:sum(nobs_outlier)){ -->
-<!--   log_like[, i] <- log(samps[, paste("log_like[", i, "]", sep="")]) -->
-<!--   v_invs[, i] <- samps[, paste("v_inv[", i, "]", sep="")] -->
-<!-- }     -->
-
-<!-- summaries <- processPCASamplesT2(t, p, n_samps, N, betas, s_invs, nus, v_invs, -->
-<!--                                  X_PCA$X_pca[, 1:p], Y.list.outlier, -->
-<!--                                  H.list.outlier, mu_outlier, nobs_outlier, n_thin,  -->
-<!--                                  preds=FALSE) -->
-
-<!-- y_tilde_mean_tpca_ssvs_outlier <- summaries$y_tilde_mean  -->
-<!-- y_tilde_sd_tpca_ssvs_outlier <- summaries$y_tilde_sd -->
-<!-- loo_tpca_ssvs_outlier <- loo(log_like) -->
-<!-- rm(samps, nus, v_invs, s_invs, betas, log_like, summaries) -->
-<!-- ``` -->
-
-<!-- ```{r tPCALassoOutlier, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE} -->
-<!-- jinits <- function(){ -->
-<!--   list(beta=matrix(rnorm(p, 0, 10), p, t), s_inv=runif(t, 0, 100), -->
-<!--        gamma2=matrix(rgamma(p*t, 1, 1), p, t), lambda2 = rexp(t)) -->
-<!-- } -->
-
-<!-- dat <- list(Y=Y_sparse_outlier, X=X_PCA$X_pca[, 1:p], p=p, H=H_sparse_outlier, t=t, -->
-<!--             tt=tt_outlier, N_total=length(tt_outlier), D=(X_PCA$sdev^2)[1:p]) -->
-
-<!-- params <- c("gamma2", "lambda2", "beta", "v_inv", "nu", "s_inv", "log_like") -->
-
-<!-- samps <- foreach(i=1:n_chains, .inorder = FALSE,  -->
-<!--                  .packages = c("rjags", "random"), .combine = "mcmc.combine",  -->
-<!--                  .multicombine = TRUE) %dopar% { -->
-<!--                    model.jags <- jags.model("./models-sens/tPCALasso.txt",  -->
-<!--                                             data=dat, inits=jinits, n.chain=1, n.adapt=n_adapt) -->
-<!--                    update(model.jags, n_burn) -->
-<!--                    result <- coda.samples(model.jags, params, n_iter) -->
-<!--                    return(result) -->
-<!--                  } -->
-
-<!-- ## Diagnostic Checks -->
-<!-- make_diagnostics(samps, t=t, p=p, nobs=nobs,  model="tpca_lasso", type="outlier-removed") -->
-
-<!-- samps <- combine.mcmc(samps) -->
-<!-- n_samps <- dim(samps)[1] -->
-
-<!-- nus <- matrix(0, n_samps, t) -->
-<!-- v_invs <- matrix(0, n_samps, sum(nobs_outlier)) -->
-<!-- s_invs <- matrix(0, n_samps, t) -->
-<!-- betas <- array(0, dim=c(n_samps, t, p)) -->
-<!-- log_like <- matrix(0, n_samps, sum(nobs_outlier)) -->
-<!-- for(i in 1:t){ -->
-<!--   s_invs[, i] <- samps[, paste("s_inv[", i, "]", sep="")] -->
-<!--   nus[, i] <- samps[, paste("nu[", i, "]", sep="")] -->
-<!--   for(j in 1:p){ -->
-<!--     betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")] -->
-<!--   } -->
-<!-- }                -->
-<!-- for(i in 1:sum(nobs_outlier)){ -->
-<!--   log_like[, i] <- log(samps[, paste("log_like[", i, "]", sep="")]) -->
-<!--   v_invs[, i] <- samps[, paste("v_inv[", i, "]", sep="")] -->
-<!-- } -->
-
-<!-- summaries <- processPCASamplesT2(t, p, n_samps, N, betas, s_invs, nus, v_invs, -->
-<!--                                  X_PCA$X_pca[, 1:p], Y.list.outlier, H.list.outlier, mu_outlier, nobs_outlier, -->
-<!--                                  n_thin, preds=FALSE) -->
-
-<!-- y_tilde_mean_tpca_lasso_outlier <- summaries$y_tilde_mean  -->
-<!-- y_tilde_sd_tpca_lasso_outlier <- summaries$y_tilde_sd -->
-<!-- loo_tpca_lasso_outlier <- loo(log_like) -->
-<!-- rm(samps, nus, v_invs, s_invs, betas, log_like, summaries) -->
-<!-- ``` -->
-
-<!-- ```{r pPCASSVSOutlier, cache=TRUE, echo=FALSE, cache.lazy=FALSE, eval=TRUE} -->
-<!-- jinits <- function(){ -->
-<!--   list(s_beta_inv=runif(1, 0, 10), beta=matrix(rnorm(p, 0, 10), p, t), -->
-<!--        tau_inv=runif(t, 0, 100), s_inv=runif(1, 0, 10)) -->
-<!-- } -->
-
-<!-- dat <- list(Y=Y_sparse_outlier, X=X_PPCA$X_center, H=H_sparse_outlier, p=p,  -->
-<!--             K_hat=X_PPCA$K_hat, tKK=X_PPCA$Lambda, I_p=diag(p), t=t,  -->
-<!--             tt=tt_outlier, N_total=length(tt_outlier)) -->
-
-<!-- params <- c("gamma", "beta", "tau2", "s2", "tau2_beta") -->
-
-<!-- samps <- foreach(i=1:n_chains, .inorder = FALSE,  -->
-<!--                  .packages = c("rjags", "random"), .combine = "mcmc.combine",  -->
-<!--                  .multicombine = TRUE) %dopar% { -->
-<!--                    model.jags <- jags.model("./models-sens/pPCASSVS.txt", -->
-<!--                                             data=dat, inits=jinits, n.chain=1, n.adapt=n_adapt) -->
-<!--                    update(model.jags, n_burn) -->
-<!--                    result <- coda.samples(model.jags, params, n_iter) -->
-<!--                    return(result) -->
-<!--                  } -->
-
-<!-- ## Diagnostics -->
-<!-- make_diagnostics(samps, t=t, p=p, nobs=nobs,  model="ppca_ssvs", type="outlier-removed") -->
-
-<!-- samps <- combine.mcmc(samps) -->
-<!-- n_samps <- dim(samps)[1] -->
-
-<!-- tau2s <- matrix(0, n_samps, t) -->
-<!-- s2s <- c(samps[, "s2"]) -->
-<!-- betas <- array(0, dim=c(n_samps, t, p)) -->
-<!-- for(i in 1:t){ -->
-<!--   tau2s[, i] <- samps[, paste("tau2[", i, "]", sep="")] -->
-<!--   for(j in 1:p){ -->
-<!--     betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")] -->
-<!--   } -->
-<!-- }                -->
-
-<!-- summaries <- processSamples(t, p, n_samps, N, betas, tau2s, s2s,  -->
-<!--                             Y.list.outlier, H.list.outlier, nobs_outlier, -->
-<!--                             X_PPCA$X_center, X_PPCA$Lambda, diag(p), -->
-<!--                             X_PPCA$K_hat, mu_outlier, n_thin, preds=FALSE) -->
-
-<!-- y_tilde_mean_ppca_ssvs_outlier <- summaries$y_tilde_mean -->
-<!-- y_tilde_sd_ppca_ssvs_outlier <- summaries$y_tilde_sd -->
-<!-- loo_ppca_ssvs_outlier <- loo(matrix(unlist(summaries$log_like), -->
-<!--                                          n_samps / n_thin, sum(nobs_outlier), byrow=FALSE)) -->
-<!-- rm(samps, summaries, betas, s2s, tau2s) -->
-<!-- ``` -->
-
-<!-- ```{r pPCALassoOutlier, cache=TRUE, echo=FALSE, cache.lazy=FALSE, eval=TRUE} -->
-<!-- jinits <- function(){  -->
-<!--   list(beta=matrix(rnorm(t*p, 0, 10), p, t), tau_inv=runif(t, 0, 100),  -->
-<!--        s_inv=runif(1, 0, 10)) -->
-<!-- } -->
-
-<!-- dat <- list(Y=Y_sparse_outlier, X=X_PPCA$X_center, H=H_sparse_outlier, p=p, -->
-<!--             K_hat=X_PPCA$K_hat, tKK=X_PPCA$Lambda, I_p=diag(p), t=t, -->
-<!--             tt=tt_outlier, N_total=length(tt_outlier)) -->
-
-<!-- params <- c("gamma2", "lambda2", "beta", "tau2", "s2") -->
-
-<!-- samps <- foreach(i=1:n_chains, .inorder = FALSE,  -->
-<!--                  .packages = c("rjags", "random"), .combine = "mcmc.combine",  -->
-<!--                  .multicombine = TRUE) %dopar% { -->
-<!--                    model.jags <- jags.model("./models-sens/pPCALasso.txt", -->
-<!--                                             data=dat, inits=jinits, n.chain=1, n.adapt=n_adapt) -->
-<!--                    update(model.jags, n_burn) -->
-<!--                    result <- coda.samples(model.jags, params, n_iter) -->
-<!--                    return(result) -->
-<!--                  } -->
-
-<!-- ## Diagnostic Checks -->
-<!-- make_diagnostics(samps, t=t, p=p, nobs=nobs,  model="ppca_lasso", type="outlier-removed") -->
-
-<!-- samps <- combine.mcmc(samps) -->
-<!-- n_samps <- dim(samps)[1] -->
-
-<!-- tau2s <- matrix(0, n_samps, t) -->
-<!-- s2s <- c(samps[, "s2"]) -->
-<!-- betas <- array(0, dim=c(n_samps, t, p)) -->
-<!-- for(i in 1:t){ -->
-<!--   tau2s[, i] <- samps[, paste("tau2[", i, "]", sep="")] -->
-<!--   for(j in 1:p){ -->
-<!--     betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")] -->
-<!--   } -->
-<!-- }                -->
-
-<!-- summaries <- processSamples(t, p, n_samps, N, betas, tau2s, s2s,  -->
-<!--                             Y.list.outlier, H.list.outlier, nobs_outlier,  -->
-<!--                             X_PPCA$X_center, X_PPCA$Lambda, diag(p), -->
-<!--                             X_PPCA$K_hat, mu_outlier, n_thin, preds=FALSE) -->
-
-<!-- y_tilde_mean_ppca_lasso_outlier <- summaries$y_tilde_mean -->
-<!-- y_tilde_sd_ppca_lasso_outlier <- summaries$y_tilde_sd -->
-<!-- loo_ppca_lasso_outlier <- loo(matrix(unlist(summaries$log_like), -->
-<!--                                           n_samps / n_thin, sum(nobs_outlier), byrow=FALSE)) -->
-<!-- rm(samps, summaries, betas, s2s, tau2s) -->
-<!-- ``` -->
-
-<!-- ```{r tpPCASSVSOutlier, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE} -->
-<!-- jinits <- function(){    -->
-<!--   list(beta=matrix(rnorm(p, 0, 10), p, t), s_inv=runif(1, 0, 10),  -->
-<!--        tau_inv=runif(t, 0, 100)) } -->
-
-<!-- dat <- list(Y=Y_sparse_outlier, X=X_PPCA$X_center, H=H_sparse_outlier, p=p,  -->
-<!--             K_hat=X_PPCA$K_hat, tKK=X_PPCA$Lambda, I_p=diag(p), t=t,  -->
-<!--             tt=tt_outlier, N_total=length(tt_outlier)) -->
-
-<!-- params <- c("gamma", "beta", "s2", "tau2_beta", "nu", "v_inv", "log_like", -->
-<!--             "tau2") -->
-
-<!-- samps <- foreach(i=1:n_chains, .inorder = FALSE,  -->
-<!--                  .packages = c("rjags", "random"), .combine = "mcmc.combine",  -->
-<!--                  .multicombine = TRUE) %dopar% { -->
-<!--                    model.jags <- jags.model("./models-sens/tpPCASSVS.txt", -->
-<!--                                             data=dat, inits=jinits, n.chain=1, n.adapt=n_adapt) -->
-<!--                    update(model.jags, n_burn) -->
-<!--                    result <- coda.samples(model.jags, params, n_iter) -->
-<!--                    return(result) -->
-<!--                  } -->
-
-<!-- ## Diagnostics -->
-<!-- make_diagnostics(samps, t=t, p=p, nobs=nobs,  model="tppca_ssvs", type="outlier-removed") -->
-
-<!-- samps <- combine.mcmc(samps) -->
-<!-- n_samps <- dim(samps)[1] -->
-
-<!-- nus <- matrix(0, n_samps, t) -->
-<!-- v_invs <- matrix(0, n_samps, sum(nobs_outlier)) -->
-<!-- s2s <- samps[, paste("s2")] -->
-<!-- tau2s <- matrix(0, n_samps, t) -->
-<!-- betas <- array(0, dim=c(n_samps, t, p)) -->
-<!-- log_like <- matrix(0, n_samps, sum(nobs_outlier)) -->
-<!-- for(i in 1:t){ -->
-<!--   tau2s[, i] <- samps[, paste("tau2[", i, "]", sep="")] -->
-<!--   nus[, i] <- samps[, paste("nu[", i, "]", sep="")] -->
-<!--   for(j in 1:p){ -->
-<!--     betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")] -->
-<!--   } -->
-<!-- }                -->
-<!-- for(i in 1:sum(nobs_outlier)){ -->
-<!--   log_like[, i] <- log(samps[, paste("log_like[", i, "]", sep="")])  -->
-<!--   v_invs[, i] <- samps[, paste("v_inv[", i, "]", sep="")] -->
-<!-- }     -->
-
-<!-- summaries <- processSamplesT(t, p, n_samps, N, betas, tau2s, s2s, nus, -->
-<!--                              v_invs, Y.list.outlier, H.list.outlier, nobs_outlier, -->
-<!--                              X_PPCA$X_center, X_PPCA$Lambda, diag(p), -->
-<!--                              X_PPCA$K_hat, mu_outlier, n_thin, preds=FALSE) -->
-
-<!-- y_tilde_mean_tppca_ssvs_outlier <- summaries$y_tilde_mean  -->
-<!-- y_tilde_sd_tppca_ssvs_outlier <- summaries$y_tilde_sd -->
-<!-- loo_tppca_ssvs_outlier <- loo(log_like) -->
-<!-- rm(samps, nus, v_invs, s2s, tau2s, betas, log_like, summaries) -->
-<!-- ``` -->
-
-<!-- ```{r tpPCALassoOutlier, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE} -->
-<!-- jinits <- function(){ -->
-<!--   list(beta=matrix(rnorm(p, 0, 10), p, t),  s_inv=runif(1, 0, 10), -->
-<!--        tau_inv=runif(t, 0, 100), gamma2=matrix(rgamma(p*t, 1, 1), p, t), -->
-<!--        lambda2=rexp(t)) -->
-<!-- } -->
-
-<!-- dat <- list(Y=Y_sparse_outlier, X=X_PPCA$X_center, H=H_sparse_outlier, p=p,  -->
-<!--             K_hat=X_PPCA$K_hat, tKK=X_PPCA$Lambda, I_p=diag(p), t=t,  -->
-<!--             tt=tt_outlier, N_total=length(tt_outlier)) -->
-
-<!-- params <- c("gamma2", "lambda2", "beta", "nu", "s2", "tau2", "v_inv", -->
-<!--             "log_like") -->
-
-<!-- samps <- foreach(i=1:n_chains, .inorder = FALSE,  -->
-<!--                  .packages = c("rjags", "random"), .combine = "mcmc.combine",  -->
-<!--                  .multicombine = TRUE) %dopar% { -->
-<!--                    model.jags <- jags.model("./models-sens/tpPCALasso.txt",  -->
-<!--                                             data=dat, inits=jinits, n.chain=1, n.adapt=n_adapt) -->
-<!--                    update(model.jags, n_burn) -->
-<!--                    result <- coda.samples(model.jags, params, n_iter) -->
-<!--                    return(result) -->
-<!--                  } -->
-
-<!-- ## Diagnostics -->
-<!-- make_diagnostics(samps, t=t, p=p, nobs=nobs,  model="tppca_lasso", type="outlier-removed") -->
-
-<!-- samps <- combine.mcmc(samps) -->
-<!-- n_samps <- dim(samps)[1] -->
-
-<!-- nus <- matrix(0, n_samps, t) -->
-<!-- v_invs <- matrix(0, n_samps, sum(nobs_outlier)) -->
-<!-- s2s <- samps[, paste("s2")] -->
-<!-- tau2s <- matrix(0, n_samps, t) -->
-<!-- betas <- array(0, dim=c(n_samps, t, p)) -->
-<!-- log_like <- matrix(0, n_samps, sum(nobs_outlier)) -->
-<!-- for(i in 1:t){ -->
-<!--   tau2s[, i] <- samps[, paste("tau2[", i, "]", sep="")] -->
-<!--   nus[, i] <- samps[, paste("nu[", i, "]", sep="")] -->
-<!--   for(j in 1:p){ -->
-<!--     betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")] -->
-<!--   } -->
-<!-- }                -->
-<!-- for(i in 1:sum(nobs_outlier)){ -->
-<!--   log_like[, i] <- log(samps[, paste("log_like[", i, "]", sep="")]) -->
-<!--   v_invs[, i] <- samps[, paste("v_inv[", i, "]", sep="")] -->
-<!-- } -->
-
-<!-- summaries <- processSamplesT(t, p, n_samps, N, betas, tau2s, s2s, nus, v_invs, -->
-<!--                              Y.list.outlier, H.list.outlier, nobs_outlier,  -->
-<!--                              X_PPCA$X_center, X_PPCA$Lambda, diag(p),  -->
-<!--                              X_PPCA$K_hat, mu_outlier, n_thin, preds=FALSE) -->
-
-<!-- y_tilde_mean_tppca_lasso_outlier <- summaries$y_tilde_mean  -->
-<!-- y_tilde_sd_tppca_lasso_outlier <- summaries$y_tilde_sd -->
-<!-- loo_tppca_lasso_outlier <- loo(log_like) -->
-<!-- rm(samps, nus, v_invs, s2s, tau2s, betas, log_like, summaries) -->
-<!-- ``` -->
-
-<!-- ```{r, cache=TRUE} -->
-<!-- finish_outlier <- Sys.time() -->
-<!-- outlier_time <- finish_outlier - start_outlier -->
-<!-- outlier_time -->
-<!-- ``` -->
-<!-- ## Check for residual spatial autocorrelation -->
-
-<!-- ```{r variogramPCA, cache=TRUE, echo=FALSE, warning=FALSE, message=FALSE, fig.height=6, fig.width=6, fig.keep='all', fig.show='hide', eval=TRUE, results='hide'} -->
-<!-- # data(fortFunctions) -->
-
-<!-- Y_obs <- rep(0, sum(nobs)) -->
-<!-- Y_hat <- rep(0, sum(nobs)) -->
-<!-- for (i in 1:sum(nobs)) { -->
-<!--   Y_obs[i] <- Y_sparse[i] + mu[tt[i]] -->
-<!--   Y_hat[i] <- y_tilde_mean_tpca_lasso_outlier[H_sparse[i], tt[i]] -->
-<!-- } -->
-<!-- outlier_idx <- which(Y_obs == min(Y_obs)) -->
-<!-- Y_obs <- Y_obs[ - outlier_idx] -->
-<!-- Y_hat <- Y_hat[ - outlier_idx] -->
-<!-- resids <- Y_obs - Y_hat -->
-
-
-<!-- layout(matrix(1:3, 3, 1)) -->
-<!-- hist(Y_obs) -->
-<!-- hist(Y_hat) -->
-<!-- hist(resids) -->
-<!-- # min(resids) -->
-
-<!-- # dists3 <- dist(as.matrix(locs[H_sparse, ])) -->
-<!-- # dists <- distGeo(as.matrix(locs[H_sparse, ]), as.matrix(locs[H_sparse, ])) -->
-<!-- dists <- fields::rdist.earth(as.matrix(locs[H_sparse, ]), as.matrix(locs[H_sparse, ])) -->
-<!-- # colnames(locs) <- c("X", "Y") -->
-<!-- locs.df <- data.frame(ID=1:length(locs[, 1]), X=locs[, 1], Y=locs[, 2]) -->
-<!-- coordinates(locs.df) <- c("X", "Y") -->
-<!-- proj4string(locs.df) <- CRS("+proj=longlat +datum=WGS84")  ## for example -->
-<!-- utms <- spTransform(locs.df, CRS(paste("+proj=utm +zone=",15," ellps=WGS84",sep=''))) -->
-
-<!-- num_breaks <- 100 -->
-<!-- dists <- dist(utms@coords[H_sparse, ][ - outlier_idx, ]) -->
-<!-- breaks <- seq(min(dists), max(dists), length=num_breaks) -->
-<!-- breaksstar <- seq(0, 50000, length=30) -->
-<!-- v0 <- variog(coords=utms@coords[H_sparse, ][ - outlier_idx, ], data=resids,  -->
-<!--              breaks=breaks, messages=FALSE) -->
-<!-- vstar <- variog(coords=utms@coords[H_sparse, ][ - outlier_idx, ], data=resids, -->
-<!--                 breaks=breaksstar, messages=FALSE) -->
-<!-- vtime <- variog(coords=utms@coords[H_sparse, ][tt == 56, ], data=resids[tt == 56], -->
-<!--                 messages=FALSE) -->
-
-<!-- # v1 <- variog(coords=utms@coords[H_sparse, ][ - outlier_idx,], data=resids,  -->
-<!-- #              option="cloud", messages=FALSE) -->
-<!-- # v2 <- variog(coords=utms@coords[H_sparse, ][ - outlier_idx, ], data=resids,  -->
-<!-- #              option="smooth", messages=FALSE) -->
-<!-- # v0.summary <- cbind(1:num_breaks, v0$v, v0$n) -->
-<!-- # colnames(v0.summary) <- c("lag", "semi-variance", "# of pairs") -->
-<!-- # v0.summary -->
-<!-- layout(matrix(1:2, 2, 1)) -->
-<!-- plot(v0, type = "b", main = "Variogram: robust PCA LASSO")  -->
-<!-- plot(vstar, type = "b", main = "Variogram: robust PCA LASSO small scale") -->
-<!-- plot(vtime, type = "b", main = "Variogram: robust PCA LASSO one year") -->
-<!-- # plot(v1, type = "b", main = "Variogram: robust PCA LASSO", bin.cloud=FALSE)  -->
-<!-- # plot(v2, type = "b", main = "Variogram: robust PCA LASSO") -->
-<!-- # lines(v1) -->
-<!-- # points(v1$u, v1$v, type="p", col=adjust.color('black', alpha.f=0.025)) -->
-<!-- # lines(v2) -->
-<!-- ``` -->
-
-<!-- ```{r variogramPPCA, cache=TRUE, echo=FALSE, warning=FALSE, message=FALSE, fig.height=6, fig.width=6, fig.keep='all', fig.show='hide', eval=TRUE, results='hide'} -->
-<!-- # data(fortFunctions) -->
-
-<!-- Y_obs <- rep(0, sum(nobs)) -->
-<!-- Y_hat <- rep(0, sum(nobs)) -->
-<!-- for (i in 1:sum(nobs)) { -->
-<!--   Y_obs[i] <- Y_sparse[i] + mu[tt[i]] -->
-<!--   Y_hat[i] <- y_tilde_mean_tppca_lasso_outlier[H_sparse[i], tt[i]] -->
-<!-- } -->
-<!-- outlier_idx <- which(Y_obs == min(Y_obs)) -->
-<!-- Y_obs <- Y_obs[ - outlier_idx] -->
-<!-- Y_hat <- Y_hat[ - outlier_idx] -->
-<!-- resids <- Y_obs - Y_hat -->
-
-<!-- layout(matrix(1:3, 3, 1)) -->
-<!-- hist(Y_obs) -->
-<!-- hist(Y_hat) -->
-<!-- hist(resids) -->
-
-<!-- # dists3 <- dist(as.matrix(locs[H_sparse, ])) -->
-<!-- # dists <- distGeo(as.matrix(locs[H_sparse, ]), as.matrix(locs[H_sparse, ])) -->
-<!-- dists <- fields::rdist.earth(as.matrix(locs[H_sparse, ]), as.matrix(locs[H_sparse, ])) -->
-<!-- # colnames(locs) <- c("X", "Y") -->
-<!-- locs.df <- data.frame(ID=1:length(locs[, 1]), X=locs[, 1], Y=locs[, 2]) -->
-<!-- coordinates(locs.df) <- c("X", "Y") -->
-<!-- proj4string(locs.df) <- CRS("+proj=longlat +datum=WGS84")  ## for example -->
-<!-- utms <- spTransform(locs.df, CRS(paste("+proj=utm +zone=",15," ellps=WGS84",sep=''))) -->
-
-<!-- num_breaks <- 100 -->
-<!-- dists <- dist(utms@coords[H_sparse, ][ - outlier_idx, ]) -->
-<!-- breaks <- seq(min(dists), max(dists), length=num_breaks) -->
-<!-- breaksstar <- seq(0, 50000, length=30) -->
-<!-- v0 <- variog(coords=utms@coords[H_sparse, ][ - outlier_idx, ], data=resids,  -->
-<!--              breaks=breaks, messages=FALSE) -->
-<!-- vstar <- variog(coords=utms@coords[H_sparse, ][ - outlier_idx, ], data=resids,  -->
-<!--                 breaks=breaksstar, messages=FALSE) -->
-<!-- # v1 <- variog(coords=utms@coords[H_sparse, ][ - outlier_idx,], data=resids,  -->
-<!-- #              option="cloud", messages=FALSE) -->
-<!-- # v2 <- variog(coords=utms@coords[H_sparse, ][ - outlier_idx, ], data=resids,  -->
-<!-- #              option="smooth", messages=FALSE) -->
-<!-- # v0.summary <- cbind(1:num_breaks, v0$v, v0$n) -->
-<!-- # colnames(v0.summary) <- c("lag", "semi-variance", "# of pairs") -->
-<!-- # v0.summary -->
-<!-- layout(matrix(1:2, 2, 1)) -->
-<!-- plot(v0, type = "b", main = "Variogram: robust PPCA LASSO")  -->
-<!-- plot(vstar, type = "b", main = "Variogram: robust PPCA LASSO small scale") -->
-<!-- # plot(v1, type = "b", main = "Variogram: robust PCA LASSO", bin.cloud=FALSE)  -->
-<!-- # plot(v2, type = "b", main = "Variogram: robust PCA LASSO") -->
-<!-- # lines(v1) -->
-<!-- # points(v1$u, v1$v, type="p", col=adjust.color('black', alpha.f=0.025)) -->
-<!-- # lines(v2) -->
-<!-- ``` -->
-
-<!-- ## Leave-one-out approximations -->
-
-<!-- ```{r loo_fort, echo=FALSE, message=FALSE, include=FALSE, warning=FALSE, fig.height=6, fig.width=12, eval=TRUE} -->
-<!-- ## PCR -->
-<!-- par(mfrow=c(1, 2), mar=c(3.5, 3.5, 1.75, 1) + 0.1, oma=c(0, 0, 0.25, 0.25) + 0.1, mgp=c(2, 1, 0)) -->
-<!-- plot_k(loo_tppca_lasso_fort$pareto_k, main="LASSO robust pPCR", ylim=c(0, 3.25), -->
-<!--        cex.axis=1.5, cex.main=1.5, cex.lab=1.5) -->
-<!-- mtext("(a)",side=3,line=-1.9,adj=c(0.1),cex=2,col="black") -->
-<!-- plot_k(loo_tppca_lasso_outlier$pareto_k, main="LASSO robust pPCR outlier removed", ylim=c(0, 3.25),  -->
-<!--        cex.axis=1.5, cex.main=1.5, cex.lab=1.5) -->
-<!-- mtext("(b)",side=3,line=-1.9,adj=c(0.1),cex=2,col="black") -->
-<!-- ``` -->
-
-<!-- \begin{figure} -->
-<!-- \centering\includegraphics[width=0.95\linewidth]{observer-sensitivity_files/figure-latex/loo_fort-1.pdf} -->
-<!-- \caption{Plot of Fort data LOO Pareto shape estimates with (a) and without (b) outlying observation. Values less than 0.5 show good model performance and values over 1.0 show poor model performance.} -->
-<!-- \label{fig:fortlooplots} -->
-<!-- \end{figure} -->
-
-<!-- ## Reconstruction Results -->
-
-<!-- ```{r simTablesOutlier, echo=FALSE, message=FALSE, eval=TRUE} -->
-<!-- loo_preds_outlier <- data.frame(looic= NA) -->
-<!-- loo_ic_outlier <- data.frame(cbind(c(loo_pca_ssvs_outlier$looic, -->
-<!--                                           loo_pca_lasso_outlier$looic), -->
-<!--                                         c(loo_ppca_ssvs_outlier$looic, -->
-<!--                                           loo_ppca_lasso_outlier$looic),  -->
-<!--                                         c(loo_tpca_ssvs_outlier$looic, -->
-<!--                                           loo_tpca_lasso_outlier$looic), -->
-<!--                                         c(loo_tppca_ssvs_outlier$looic, -->
-<!--                                           loo_tppca_lasso_outlier$looic))) -->
-<!-- rownames(loo_ic_outlier) <- c("SSVS", "LASSO") -->
-<!-- colnames(loo_ic_outlier) <- c("PCR", "pPCR", "PCR", "pPCR") -->
-<!-- addtorow$pos <- list(0) -->
-<!-- addtorow$command <- c("\\multicolumn{1}{|r|}{} & \\multicolumn{2}{c|}{Gaussian} & \\multicolumn{2}{c|}{Robust} \\\\ -->
-<!-- & PCR & pPCR & PCR & pPCR \\\\\n") -->
-<!-- print(xtable(loo_ic_outlier, digits=0, align=c("|r|rr|rr|")), -->
-<!--       hline.after=c(-1, 0, nrow(loo_ic_fort)), add.to.row=addtorow,  -->
-<!--       file="loooutlier.tex", floating=FALSE, size="small", -->
-<!--       include.colnames=FALSE) -->
-
-<!-- fortscores <- data.frame(cbind(c(loo_pca_ssvs_fort$looic,  -->
-<!--                                  loo_ppca_ssvs_fort$looic, -->
-<!--                                  loo_pca_lasso_fort$looic,             -->
-<!--                                  loo_ppca_lasso_fort$looic),  -->
-<!--                                c(loo_tpca_ssvs_fort$looic, -->
-<!--                                  loo_tppca_ssvs_fort$looic,  -->
-<!--                                  loo_tpca_lasso_fort$looic, -->
-<!--                                  loo_tppca_lasso_fort$looic), -->
-<!--                                c(loo_pca_ssvs_outlier$looic,  -->
-<!--                                  loo_ppca_ssvs_outlier$looic, -->
-<!--                                  loo_pca_lasso_outlier$looic,             -->
-<!--                                  loo_ppca_lasso_outlier$looic),  -->
-<!--                                c(loo_tpca_ssvs_outlier$looic, -->
-<!--                                  loo_tppca_ssvs_outlier$looic,  -->
-<!--                                  loo_tpca_lasso_outlier$looic, -->
-<!--                                  loo_tppca_lasso_outlier$looic))) -->
-<!-- rownames(fortscores) <- c("SSVS PCR", "SSVS pPCR", "LASSO PCR", "LASSO pPCR") -->
-<!-- addtorow <- list() -->
-<!-- addtorow$pos <- list(0) -->
-<!-- addtorow$command <- c("\\multicolumn{1}{r}{} & \\multicolumn{2}{c}{Full Data} & \\multicolumn{2}{c}{Outlier Removed} \\\\ -->
-<!--  Model & Gaussian & Robust & Gaussian & Robust \\\\\n") -->
-<!-- print(xtable(fortscores, digits=0, align=c("rrrrr")), -->
-<!--       hline.after=c(-1, 0, nrow(fortscores)), add.to.row=addtorow,  -->
-<!--       file="fort-scores.tex", -->
-<!--       floating=FALSE, size="small", include.colnames=FALSE) -->
-
-<!-- ``` -->
-
-
-<!-- ## Plot reconstructed surfaces -->
-
-<!-- ```{r fortPlotstPCA, echo=TRUE, eval=TRUE, include=FALSE, fig.height=6, fig.width=12, eval=TRUE} -->
-<!-- library(RColorBrewer) -->
-<!-- fort.raster.tmp <- fort.raster -->
-<!-- fort.raster.sd <- fort.raster -->
-<!-- min.fort <- rep(NA, 4) -->
-<!-- max.fort <- rep(NA, 4) -->
-<!-- min.fort.sd <- rep(NA, 4) -->
-<!-- max.fort.sd <- rep(NA, 4) -->
-
-<!-- subset <- c(12, 28, 56, 71) -->
-<!-- for(ii in 1:4){ -->
-<!--   i <- subset[ii] -->
-<!--   values(fort.raster.tmp[[i]])[ - na.rows] <- y_tilde_mean_tpca_lasso_outlier[, i] -->
-<!--   values(fort.raster.sd[[i]])[ - na.rows] <- y_tilde_sd_tpca_lasso_outlier[, i] -->
-<!--   min.fort[ii] <- min(y_tilde_mean_tpca_lasso_outlier[, i],  -->
-<!--                       y_tilde_mean_tppca_lasso_outlier[, i]) -->
-<!--   max.fort[ii] <- max(y_tilde_mean_tpca_lasso_outlier[, i],  -->
-<!--                       y_tilde_mean_tppca_lasso_outlier[, i]) -->
-<!--   min.fort.sd[ii] <- min(y_tilde_sd_tpca_lasso_outlier[, i],  -->
-<!--                          y_tilde_sd_tppca_lasso_outlier[, i]) -->
-<!--   max.fort.sd[ii] <- max(y_tilde_sd_tpca_lasso_outlier[, i],  -->
-<!--                          y_tilde_sd_tppca_lasso_outlier[, i]) -->
-<!-- } -->
-
-
-<!-- layout(matrix(c(1, 1, 1, 2, 2, 2, 9, 3, 3, 3, 4, 4, 4, 10, -->
-<!--                 1, 1, 1, 2, 2, 2, 9, 3, 3, 3, 4, 4, 4, 10,  -->
-<!--                 1, 1, 1, 2, 2, 2, 9, 3, 3, 3, 4, 4, 4, 10,  -->
-<!--                 5, 5, 5, 6, 6, 6, 9, 7, 7, 7, 8, 8, 8, 10, -->
-<!--                 5, 5, 5, 6, 6, 6, 9, 7, 7, 7, 8, 8, 8, 10,                 -->
-<!--                 5, 5, 5, 6, 6, 6, 9, 7, 7, 7, 8, 8, 8, 10), 6, 14, byrow=TRUE)) -->
-<!-- par(mar=c(3.5, 3.25, 1.75, 0.5) + 0.1, oma=c(0, 0, 0.25, 0.25) + 0.1) -->
-
-<!-- for(i in subset[1:2]){ -->
-<!--   if (i == subset[1]) { -->
-<!--     image(fort.raster.tmp[[i]], main = paste(i + 1819), #col = topo.colors(64), -->
-<!--           col=rev(colorRampPalette(brewer.pal(8, "RdBu"))(64)), -->
-<!--           zlim = c(min(min.fort), max(max.fort)), ylab = '', xlab='', xaxt="n", -->
-<!--           cex.main=2.5) -->
-<!--     mtext("latitude", 2, line=2) -->
-<!--   } else { -->
-<!--     image(fort.raster.tmp[[i]], main = paste(i + 1819), #col = topo.colors(64), -->
-<!--           col=rev(colorRampPalette(brewer.pal(8, "RdBu"))(64)), -->
-<!--           zlim = c(min(min.fort), max(max.fort)), ylab = '', xlab='', yaxt="n", -->
-<!--           xaxt="n", cex.main=2.5) -->
-<!--   } -->
-<!--   if(i == subset[1]){ -->
-<!--     mtext("(a)",side=3,line=-1.9,adj=c(0.1),cex=2,col="black") -->
-<!--   } -->
-<!--   map(database = 'state', add = TRUE, col = 'black') -->
-<!--   points(prism.points[H.list[[i]], ], pch = 16, col = 'black', cex = 1.5) -->
-<!-- } -->
-
-<!-- for(i in subset[1:2]){ -->
-<!--   image(fort.raster.sd[[i]], main = paste(i + 1819),  -->
-<!--         col=colorRampPalette(brewer.pal(8, "YlGn"))(64), -->
-<!--         # cm.colors(64), -->
-<!--         zlim = c(min(min.fort.sd), max(max.fort.sd)),  -->
-<!--         ylab = '', xlab='', yaxt="n", xaxt="n", cex.main=2.5) -->
-<!--   map(database = 'state', add = TRUE, col = 'black') -->
-<!--   if(i == subset[1]){ -->
-<!--     mtext("(b)",side=3,line=-1.9,adj=c(0.1),cex=2,col="black") -->
-<!--   } -->
-<!--   points(prism.points[H.list[[i]], ], pch = 16, col = 'black', cex = 1.5) -->
-<!-- } -->
-
-<!-- for(i in subset[3:4]){ -->
-<!--   if (i == subset[3]) { -->
-<!--     image(fort.raster.tmp[[i]], main = paste(i + 1819), #col = topo.colors(64), -->
-<!--           col=rev(colorRampPalette(brewer.pal(8, "RdBu"))(64)), -->
-<!--           zlim = c(min(min.fort), max(max.fort)), ylab = '', xlab='',  -->
-<!--           cex.main=2.5)     -->
-<!--     mtext("latitude", 2, line=2) -->
-<!--     mtext("longitude", 1, line=2.25) -->
-<!--   } else { -->
-<!--     image(fort.raster.tmp[[i]], main = paste(i + 1819), #col = topo.colors(64), -->
-<!--           col=rev(colorRampPalette(brewer.pal(8, "RdBu"))(64)), -->
-<!--           zlim = c(min(min.fort), max(max.fort)), ylab = '', xlab='', yaxt="n", -->
-<!--           cex.main=2.5) -->
-<!--   } -->
-
-<!--   map(database = 'state', add = TRUE, col = 'black') -->
-<!--   points(prism.points[H.list[[i]], ], pch = 16, col = 'black', cex = 1.5) -->
-<!-- } -->
-
-<!-- for(i in subset[3:4]){ -->
-<!--   image(fort.raster.sd[[i]], main = paste(i + 1819),  -->
-<!--         col=colorRampPalette(brewer.pal(8, "YlGn"))(64), -->
-<!--         # cm.colors(64), -->
-<!--         zlim = c(min(min.fort.sd), max(max.fort.sd)),  -->
-<!--         ylab = '', xlab='', yaxt="n", cex.main=2.5) -->
-<!--   mtext("longitude", 1, line=2.25) -->
-<!--   map(database = 'state', add = TRUE, col = 'black') -->
-<!--   points(prism.points[H.list[[i]], ], pch = 16, col = 'black', cex = 1.5) -->
-<!-- } -->
-<!-- image.scale(fort.raster.tmp[[i]], #col = topo.colors(64),  -->
-<!--             col=rev(colorRampPalette(brewer.pal(8, "RdBu"))(64)), -->
-<!--             zlim = c(min(min.fort), max(max.fort)), horiz=FALSE) -->
-<!-- image.scale(fort.raster.sd[[i]], col=colorRampPalette(brewer.pal(8, "YlGn"))(64), -->
-<!--             # cm.colors(64),  -->
-<!--             zlim = c(min(min.fort.sd), max(max.fort.sd)), horiz=FALSE) -->
-<!-- ``` -->
-
-<!-- \begin{figure} -->
-<!-- \centering\includegraphics[width=0.95\linewidth]{observer-sensitivity_files/figure-latex/fortPlotstPCA-1.pdf} -->
-<!-- \caption{Reconstruction of temperature using robust PCR model for four representative years. Figures show posterior predictive mean (a) and standard deviation (b).} -->
-<!-- \label{fig:tPCRFort} -->
-<!-- \end{figure} -->
-
-<!-- ```{r fortPlotstpPCA, echo=TRUE, eval=TRUE, include=FALSE, fig.height=6, fig.width=12, eval=TRUE} -->
-<!-- fort.raster.tmp <- fort.raster -->
-<!-- fort.raster.sd <- fort.raster -->
-<!-- min.fort <- rep(NA, 4) -->
-<!-- max.fort <- rep(NA, 4) -->
-<!-- min.fort.sd <- rep(NA, 4) -->
-<!-- max.fort.sd <- rep(NA, 4) -->
-
-<!-- subset <- c(12, 28, 56, 71) -->
-<!-- for(ii in 1:4){ -->
-<!--   i <- subset[ii] -->
-<!--   values(fort.raster.tmp[[i]])[ - na.rows] <- y_tilde_mean_tppca_lasso_outlier[, i] -->
-<!--   values(fort.raster.sd[[i]])[ - na.rows] <- y_tilde_sd_tppca_lasso_outlier[, i] -->
-<!--   min.fort[ii] <- min(y_tilde_mean_tpca_lasso_outlier[, i],  -->
-<!--                       y_tilde_mean_tppca_lasso_outlier[, i]) -->
-<!--   max.fort[ii] <- max(y_tilde_mean_tpca_lasso_outlier[, i],  -->
-<!--                       y_tilde_mean_tppca_lasso_outlier[, i]) -->
-<!--   min.fort.sd[ii] <- min(y_tilde_sd_tpca_lasso_outlier[, i],  -->
-<!--                          y_tilde_sd_tppca_lasso_outlier[, i]) -->
-<!--   max.fort.sd[ii] <- max(y_tilde_sd_tpca_lasso_outlier[, i],  -->
-<!--                          y_tilde_sd_tppca_lasso_outlier[, i]) -->
-<!-- } -->
-
-
-<!-- layout(matrix(c(1, 1, 1, 2, 2, 2, 9, 3, 3, 3, 4, 4, 4, 10, -->
-<!--                 1, 1, 1, 2, 2, 2, 9, 3, 3, 3, 4, 4, 4, 10,  -->
-<!--                 1, 1, 1, 2, 2, 2, 9, 3, 3, 3, 4, 4, 4, 10,  -->
-<!--                 5, 5, 5, 6, 6, 6, 9, 7, 7, 7, 8, 8, 8, 10, -->
-<!--                 5, 5, 5, 6, 6, 6, 9, 7, 7, 7, 8, 8, 8, 10,                 -->
-<!--                 5, 5, 5, 6, 6, 6, 9, 7, 7, 7, 8, 8, 8, 10), 6, 14, byrow=TRUE)) -->
-<!-- par(mar=c(3.5, 3.25, 1.75, 0.5) + 0.1, oma=c(0, 0, 0.25, 0.25) + 0.1) -->
-
-<!-- for(i in subset[1:2]){ -->
-<!--   if (i == subset[1]) { -->
-<!--     image(fort.raster.tmp[[i]], main = paste(i + 1819), #col = topo.colors(64), -->
-<!--           col=rev(colorRampPalette(brewer.pal(8, "RdBu"))(64)), -->
-<!--           zlim = c(min(min.fort), max(max.fort)), ylab = '', xlab='', -->
-<!--           yaxt="n", xaxt="n", cex.main=2.5) -->
-<!--     mtext("latitude", 2, line=2) -->
-<!--   } else { -->
-<!--     image(fort.raster.tmp[[i]], main = paste(i + 1819), #col = topo.colors(64), -->
-<!--           col=rev(colorRampPalette(brewer.pal(8, "RdBu"))(64)), -->
-<!--           zlim = c(min(min.fort), max(max.fort)), ylab = '', xlab='', -->
-<!--           yaxt="n", xaxt="n", cex.main=2.5) -->
-<!--   } -->
-<!--   if(i == subset[1]){ -->
-<!--     mtext("(a)",side=3,line=-1.9,adj=c(0.1),cex=2,col="black") -->
-<!--   } -->
-<!--   map(database = 'state', add = TRUE, col = 'black') -->
-<!--   points(prism.points[H.list[[i]], ], pch = 16, col = 'black', cex = 1.5) -->
-<!-- } -->
-
-<!-- for(i in subset[1:2]){ -->
-<!--   image(fort.raster.sd[[i]], main = paste(i + 1819), #col = cm.colors(64), -->
-<!--         col=colorRampPalette(brewer.pal(8, "YlGn"))(64), -->
-<!--         zlim = c(min(min.fort.sd), max(max.fort.sd)), -->
-<!--         ylab = '', xlab='', yaxt="n", xaxt="n", cex.main=2.5) -->
-<!--   map(database = 'state', add = TRUE, col = 'black') -->
-<!--   if(i == subset[1]){ -->
-<!--     mtext("(b)",side=3,line=-1.9,adj=c(0.1),cex=2,col="black") -->
-<!--   } -->
-<!--   points(prism.points[H.list[[i]], ], pch = 16, col = 'black', cex = 1.5) -->
-<!-- } -->
-
-<!-- for(i in subset[3:4]){ -->
-<!--   if (i == subset[3]) { -->
-<!--     image(fort.raster.tmp[[i]], main = paste(i + 1819), #col = topo.colors(64), -->
-<!--           col=rev(colorRampPalette(brewer.pal(8, "RdBu"))(64)), -->
-<!--           zlim = c(min(min.fort), max(max.fort)), ylab = '', xlab='',  -->
-<!--           cex.main=2.5) -->
-<!--     mtext("latitude", 2, line=2) -->
-<!--     mtext("longitude", 1, line=2.25) -->
-<!--   } else { -->
-<!--     image(fort.raster.tmp[[i]], main = paste(i + 1819), #col = topo.colors(64), -->
-<!--           col=rev(colorRampPalette(brewer.pal(8, "RdBu"))(64)), -->
-<!--           zlim = c(min(min.fort), max(max.fort)), ylab = '', xlab='', yaxt="n",  -->
-<!--           cex.main=2.5) -->
-<!--     mtext("longitude", 1, line=2.25) -->
-<!--   } -->
-<!--   map(database = 'state', add = TRUE, col = 'black') -->
-<!--   points(prism.points[H.list[[i]], ], pch = 16, col = 'black', cex = 1.5) -->
-<!-- } -->
-
-<!-- for(i in subset[3:4]){ -->
-<!--   image(fort.raster.sd[[i]], main = paste(i + 1819), #col = cm.colors(64), -->
-<!--         col=colorRampPalette(brewer.pal(8, "YlGn"))(64), -->
-<!--         zlim = c(min(min.fort.sd), max(max.fort.sd)), -->
-<!--         ylab = '', xlab='', yaxt="n", cex.main=2.5) -->
-<!--   mtext("longitude", 1, line=2.25) -->
-<!--   map(database = 'state', add = TRUE, col = 'black') -->
-<!--   points(prism.points[H.list[[i]], ], pch = 16, col = 'black', cex = 1.5) -->
-<!-- } -->
-<!-- image.scale(fort.raster.tmp[[i]], #col = topo.colors(64),  -->
-<!--             col=rev(colorRampPalette(brewer.pal(8, "RdBu"))(64)), -->
-<!--             zlim = c(min(min.fort), max(max.fort)), horiz=FALSE) -->
-<!-- image.scale(fort.raster.sd[[i]], #col = cm.colors(64),  -->
-<!--             col=colorRampPalette(brewer.pal(8, "YlGn"))(64), -->
-<!--             zlim = c(min(min.fort.sd), max(max.fort.sd)), horiz=FALSE) -->
-<!-- ``` -->
-
-<!-- \begin{figure} -->
-<!-- \centering\includegraphics[width=0.95\linewidth]{observer-sensitivity_files/figure-latex/fortPlotstPCA-1.pdf} -->
-<!-- \caption{Reconstruction of temperature using robust probabilistic PCR model for four representative years. Figures show posterior predictive mean (a) and standard deviation (b).} -->
-<!-- \label{fig:tpPCRFort} -->
-<!-- \end{figure} -->
-
-<!-- ## Plot difference in reconstructed surfaces -->
-
-<!-- ```{r fortPlotsDiff, echo=TRUE, eval=TRUE, include=FALSE, fig.height=6, fig.width=12, eval=TRUE} -->
-<!-- library(RColorBrewer) -->
-<!-- fort.raster.tmp <- fort.raster -->
-<!-- fort.raster.sd <- fort.raster -->
-<!-- min.fort <- rep(NA, 4) -->
-<!-- max.fort <- rep(NA, 4) -->
-<!-- min.fort.sd <- rep(NA, 4) -->
-<!-- max.fort.sd <- rep(NA, 4) -->
-
-<!-- subset <- c(12, 28, 56, 71) -->
-<!-- for(ii in 1:4){ -->
-<!--   i <- subset[ii] -->
-<!--   values(fort.raster.tmp[[i]])[ - na.rows] <- y_tilde_mean_tpca_lasso_outlier[, i] -  -->
-<!--     y_tilde_mean_tppca_lasso_outlier[, i] -->
-<!--   values(fort.raster.sd[[i]])[ - na.rows] <- y_tilde_sd_tpca_lasso_outlier[, i] -  -->
-<!--     y_tilde_sd_tppca_lasso_outlier[, i] -->
-<!--   min.fort[ii] <- min(y_tilde_mean_tpca_lasso_outlier[, i] -  -->
-<!--                         y_tilde_mean_tppca_lasso_outlier[, i]) -->
-<!--   max.fort[ii] <- max(y_tilde_mean_tpca_lasso_outlier[, i] - -->
-<!--                         y_tilde_mean_tppca_lasso_outlier[, i]) -->
-<!--   min.fort.sd[ii] <- min(y_tilde_sd_tpca_lasso_outlier[, i] -  -->
-<!--                            y_tilde_sd_tppca_lasso_outlier[, i]) -->
-<!--   max.fort.sd[ii] <- max(y_tilde_sd_tpca_lasso_outlier[, i] -  -->
-<!--                            y_tilde_sd_tppca_lasso_outlier[, i]) -->
-<!-- } -->
-
-
-<!-- layout(matrix(c(1, 1, 1, 2, 2, 2, 9, 3, 3, 3, 4, 4, 4, 10, -->
-<!--                 1, 1, 1, 2, 2, 2, 9, 3, 3, 3, 4, 4, 4, 10,  -->
-<!--                 1, 1, 1, 2, 2, 2, 9, 3, 3, 3, 4, 4, 4, 10,  -->
-<!--                 5, 5, 5, 6, 6, 6, 9, 7, 7, 7, 8, 8, 8, 10, -->
-<!--                 5, 5, 5, 6, 6, 6, 9, 7, 7, 7, 8, 8, 8, 10,                 -->
-<!--                 5, 5, 5, 6, 6, 6, 9, 7, 7, 7, 8, 8, 8, 10), 6, 14, byrow=TRUE)) -->
-<!-- par(mar=c(3.5, 3.25, 1.75, 0.5) + 0.1, oma=c(0, 0, 0.25, 0.25) + 0.1) -->
-
-<!-- for(i in subset[1:2]){ -->
-<!--   if (i == subset[1]) { -->
-<!--     image(fort.raster.tmp[[i]], main = paste(i + 1819), #col = topo.colors(64), -->
-<!--           col=rev(colorRampPalette(brewer.pal(8, "RdBu"))(64)), -->
-<!--           zlim = c(- max(abs(min.fort), abs(max.fort)), max(abs(min.fort), abs(max.fort))), -->
-<!--           ylab = '', xlab='', xaxt="n", cex.main=2.5) -->
-<!--     mtext("latitude", 2, line=2) -->
-<!--   } else { -->
-<!--     image(fort.raster.tmp[[i]], main = paste(i + 1819), #col = topo.colors(64), -->
-<!--           col=rev(colorRampPalette(brewer.pal(8, "RdBu"))(64)), -->
-<!--           zlim = c(- max(abs(min.fort), abs(max.fort)), max(abs(min.fort), abs(max.fort))), -->
-<!--           ylab = '', xlab='', yaxt="n", xaxt="n", cex.main=2.5) -->
-<!--   } -->
-<!--   if(i == subset[1]){ -->
-<!--     mtext("(a)",side=3,line=-1.9,adj=c(0.1),cex=2,col="black") -->
-<!--   } -->
-<!--   map(database = 'state', add = TRUE, col = 'black') -->
-<!--   points(prism.points[H.list[[i]], ], pch = 16, col = 'black', cex = 1.5) -->
-<!-- } -->
-
-<!-- for(i in subset[1:2]){ -->
-<!--   image(fort.raster.sd[[i]], main = paste(i + 1819),  -->
-<!--         col=colorRampPalette(brewer.pal(8, "PuOr"))(64), -->
-<!--         # cm.colors(64), -->
-<!--         zlim = c(- max(abs(min.fort), abs(max.fort)), max(abs(min.fort), abs(max.fort))), -->
-<!--         ylab = '', xlab='', yaxt="n", xaxt="n", cex.main=2.5) -->
-<!--   map(database = 'state', add = TRUE, col = 'black') -->
-<!--   if(i == subset[1]){ -->
-<!--     mtext("(b)",side=3,line=-1.9,adj=c(0.1),cex=2,col="black") -->
-<!--   } -->
-<!--   points(prism.points[H.list[[i]], ], pch = 16, col = 'black', cex = 1.5) -->
-<!-- } -->
-
-<!-- for(i in subset[3:4]){ -->
-<!--   if (i == subset[3]) { -->
-<!--     image(fort.raster.tmp[[i]], main = paste(i + 1819), #col = topo.colors(64), -->
-<!--           col=rev(colorRampPalette(brewer.pal(8, "RdBu"))(64)), -->
-<!--           zlim = c(- max(abs(min.fort), abs(max.fort)), max(abs(min.fort), abs(max.fort))), -->
-<!--           ylab = '', xlab='', cex.main=2.5)     -->
-<!--     mtext("latitude", 2, line=2) -->
-<!--     mtext("longitude", 1, line=2.25) -->
-<!--   } else { -->
-<!--     image(fort.raster.tmp[[i]], main = paste(i + 1819), #col = topo.colors(64), -->
-<!--           col=rev(colorRampPalette(brewer.pal(8, "RdBu"))(64)), -->
-<!--           zlim = c(- max(abs(min.fort), abs(max.fort)), max(abs(min.fort), abs(max.fort))), -->
-<!--           ylab = '', xlab='', yaxt="n", cex.main=2.5) -->
-<!--   } -->
-
-<!--   map(database = 'state', add = TRUE, col = 'black') -->
-<!--   points(prism.points[H.list[[i]], ], pch = 16, col = 'black', cex = 1.5) -->
-<!-- } -->
-
-<!-- for(i in subset[3:4]){ -->
-<!--   image(fort.raster.sd[[i]], main = paste(i + 1819),  -->
-<!--         col=colorRampPalette(brewer.pal(8, "PuOr"))(64), -->
-<!--         # cm.colors(64), -->
-<!--         zlim = c(- max(abs(min.fort), abs(max.fort)), max(abs(min.fort), abs(max.fort))), -->
-<!--         ylab = '', xlab='', yaxt="n", cex.main=2.5) -->
-<!--   mtext("longitude", 1, line=2.25) -->
-<!--   map(database = 'state', add = TRUE, col = 'black') -->
-<!--   points(prism.points[H.list[[i]], ], pch = 16, col = 'black', cex = 1.5) -->
-<!-- } -->
-<!-- image.scale(fort.raster.tmp[[i]], #col = topo.colors(64),  -->
-<!--             col=rev(colorRampPalette(brewer.pal(8, "RdBu"))(64)), -->
-<!--             zlim = c(- max(abs(min.fort), abs(max.fort)), max(abs(min.fort), abs(max.fort))),  -->
-<!--             horiz=FALSE) -->
-<!-- image.scale(fort.raster.sd[[i]], col=colorRampPalette(brewer.pal(8, "PuOr"))(64), -->
-<!--             # cm.colors(64),  -->
-<!--             zlim = c(- max(abs(min.fort), abs(max.fort)), max(abs(min.fort), abs(max.fort))), -->
-<!--             horiz=FALSE) -->
-<!-- ``` -->
-
-<!-- \begin{figure} -->
-<!-- \centering\includegraphics[width=0.95\linewidth]{observer-sensitivity_files/figure-latex/fortPlotsDiff-1.pdf} -->
-<!-- \caption{Difference in reconstruction of temperature using robust PCR minus robust probabilistic PCR model for four representative years. Figures show posterior predictive difference in mean (a) and difference in standard deviation (b).} -->
-<!-- \label{fig:tpPCRFort} -->
-<!-- \end{figure} -->
-
-<!-- ## Plot time series reconstructions at four arbitrary locations -->
-
-<!-- ```{r TimeSeries, echo=TRUE, eval=TRUE, include=FALSE, fig.height=6, fig.width=12, eval=TRUE} -->
-<!-- library(RColorBrewer) -->
-<!-- fort.raster.tmp <- fort.raster -->
-<!-- fort.raster.sd <- fort.raster -->
-<!-- madison_longlat <- c(-89.41012, 43.0731) -->
-<!-- minneapolis_longlat <- c(-93.2650, 44.9778) -->
-<!-- detroit_longlat <- c(-83.0458, 42.3314) -->
-<!-- champaign_longlat <- c(-88.2073, 40.1106) -->
-
-
-<!-- madison_idx <- which(pointDistance(prism.points, madison_longlat, lonlat=TRUE) == -->
-<!--                        min(pointDistance(prism.points, madison_longlat, lonlat=TRUE))) -->
-<!-- minneapolis_idx <- which(pointDistance(prism.points, minneapolis_longlat, lonlat=TRUE) ==  -->
-<!--                            min(pointDistance(prism.points, minneapolis_longlat, lonlat=TRUE))) -->
-<!-- detroit_idx <- which(pointDistance(prism.points, detroit_longlat, lonlat=TRUE) == -->
-<!--                        min(pointDistance(prism.points, detroit_longlat, lonlat=TRUE))) -->
-<!-- champaign_idx <- which(pointDistance(prism.points, champaign_longlat, lonlat=TRUE) ==  -->
-<!--                          min(pointDistance(prism.points, champaign_longlat, lonlat=TRUE))) -->
-
-<!-- madison_temp <- matrix(0, 75 + 116, 2) -->
-<!-- minneapolis_temp <- matrix(0, 75 + 116, 2) -->
-<!-- detroit_temp <- matrix(0, 75 + 116, 2) -->
-<!-- champaign_temp <- matrix(0, 75 + 116, 2) -->
-<!-- madison_temp_sd <- matrix(0, 75 + 116, 2) -->
-<!-- minneapolis_temp_sd <- matrix(0, 75 + 116, 2) -->
-<!-- detroit_temp_sd <- matrix(0, 75 + 116, 2) -->
-<!-- champaign_temp_sd <- matrix(0, 75 + 116, 2) -->
-
-<!-- for (i in 1:(75 + 116)) { -->
-<!--   if (i <= 75) { -->
-<!--     madison_temp[i, ] <- c(y_tilde_mean_tpca_lasso_outlier[madison_idx, i],   -->
-<!--                            y_tilde_mean_tppca_lasso_outlier[madison_idx, i]) -->
-<!--     minneapolis_temp[i, ] <- c(y_tilde_mean_tpca_lasso_outlier[minneapolis_idx, i],   -->
-<!--                                y_tilde_mean_tppca_lasso_outlier[minneapolis_idx, i]) -->
-<!--     detroit_temp[i, ] <- c(y_tilde_mean_tpca_lasso_outlier[detroit_idx, i],   -->
-<!--                            y_tilde_mean_tppca_lasso_outlier[detroit_idx, i]) -->
-<!--     champaign_temp[i, ] <- c(y_tilde_mean_tpca_lasso_outlier[champaign_idx, i],   -->
-<!--                              y_tilde_mean_tppca_lasso_outlier[champaign_idx, i]) -->
-<!--     madison_temp_sd[i, ] <- c(y_tilde_sd_tpca_lasso_outlier[madison_idx, i],   -->
-<!--                               y_tilde_sd_tppca_lasso_outlier[madison_idx, i]) -->
-<!--     minneapolis_temp_sd[i, ] <- c(y_tilde_sd_tpca_lasso_outlier[minneapolis_idx, i],   -->
-<!--                                   y_tilde_sd_tppca_lasso_outlier[minneapolis_idx, i]) -->
-<!--     detroit_temp_sd[i, ] <- c(y_tilde_sd_tpca_lasso_outlier[detroit_idx, i],   -->
-<!--                               y_tilde_sd_tppca_lasso_outlier[detroit_idx, i]) -->
-<!--     champaign_temp_sd[i, ] <- c(y_tilde_sd_tpca_lasso_outlier[champaign_idx, i],   -->
-<!--                                 y_tilde_sd_tppca_lasso_outlier[champaign_idx, i]) -->
-<!--   } else { -->
-<!--     ii <- i - 75 -->
-<!--     madison_temp[i, ] <- X.farenheit[madison_idx, ii] -->
-<!--     minneapolis_temp[i, ] <- X.farenheit[madison_idx, ii] -->
-<!--     detroit_temp[i, ] <- X.farenheit[madison_idx, ii] -->
-<!--     champaign_temp[i, ] <- X.farenheit[madison_idx, ii] -->
-<!--   } -->
-<!-- }   -->
-
-<!-- ## adjust temp from 8:30AM to temperatures over a one minute grid choosing -->
-<!-- ## (T_min+T_max)/2 resulting in constant mean shift of 3.027014 -->
-
-<!-- madison_temp_adjusted <- madison_temp -->
-<!-- minneapolis_temp_adjusted <- minneapolis_temp -->
-<!-- detroit_temp_adjusted <- detroit_temp -->
-<!-- champaign_temp_adjusted <- champaign_temp -->
-<!-- madison_temp_adjusted[1:75, ] <- madison_temp_adjusted[1:75, ]+3.027014 -->
-<!-- minneapolis_temp_adjusted[1:75, ] <- minneapolis_temp_adjusted[1:75, ]+3.027014 -->
-<!-- detroit_temp_adjusted[1:75, ] <- detroit_temp_adjusted[1:75, ]+3.027014 -->
-<!-- champaign_temp_adjusted[1:75, ] <- champaign_temp_adjusted[1:75, ]+3.027014 -->
-
-<!-- require(ggplot2)   -->
-<!-- time.dat <- data.frame(Temperature = c(madison_temp_adjusted[1:75, ],  -->
-<!--                                        minneapolis_temp_adjusted[1:75, ],  -->
-<!--                                        detroit_temp_adjusted[1:75, ],  -->
-<!--                                        champaign_temp_adjusted[1:75, ]), -->
-<!--                        temp_min = c(madison_temp_adjusted[1:75, ] - -->
-<!--                                       2*madison_temp_sd[1:75, ], -->
-<!--                                     minneapolis_temp_adjusted[1:75, ] - -->
-<!--                                       2*minneapolis_temp_sd[1:75, ], -->
-<!--                                     detroit_temp_adjusted[1:75, ] - -->
-<!--                                       2*detroit_temp_sd[1:75, ], -->
-<!--                                     champaign_temp_adjusted[1:75, ] - -->
-<!--                                       2*champaign_temp_sd[1:75, ]), -->
-<!--                        temp_max = c(madison_temp_adjusted[1:75, ] + -->
-<!--                                       2*madison_temp_sd[1:75, ], -->
-<!--                                     minneapolis_temp_adjusted[1:75, ] + -->
-<!--                                       2*minneapolis_temp_sd[1:75, ], -->
-<!--                                     detroit_temp_adjusted[1:75, ] + -->
-<!--                                       2*detroit_temp_sd[1:75, ], -->
-<!--                                     champaign_temp_adjusted[1:75, ] + -->
-<!--                                       2*champaign_temp_sd[1:75, ]), -->
-<!--                        sd = c(madison_temp_sd[1:75, ], minneapolis_temp_sd[1:75, ], -->
-<!--                               detroit_temp_sd[1:75, ], champaign_temp_sd[1:75, ]),  -->
-<!--                        location = c(rep("Madison", 150), rep("Minneapolis", 150), -->
-<!--                                     rep("Detroit", 150), rep("Champaign", 150)), -->
-<!--                        model = rep(c(rep("tPCA LASSO", 75), rep("tpPCA LASSO", 75)), times=4),  -->
-<!--                        Year = rep(1820:1894, 8)) -->
-<!-- # time.dat <- data.frame(Temperature = c(madison_temp[1:75, ], minneapolis_temp[1:75, ],  -->
-<!-- #                                        detroit_temp[1:75, ], champaign_temp[1:75, ]), -->
-<!-- #                        temp_min = c(madison_temp[1:75, ]-2*madison_temp_sd[1:75, ], -->
-<!-- #                                     minneapolis_temp[1:75, ]-2*minneapolis_temp_sd[1:75, ], -->
-<!-- #                                     detroit_temp[1:75, ]-2*detroit_temp_sd[1:75, ], -->
-<!-- #                                     champaign_temp[1:75, ]-2*champaign_temp_sd[1:75, ]), -->
-<!-- #                        temp_max = c(madison_temp[1:75, ]+2*madison_temp_sd[1:75, ], -->
-<!-- #                                     minneapolis_temp[1:75, ]+2*minneapolis_temp_sd[1:75, ], -->
-<!-- #                                     detroit_temp[1:75, ]+2*detroit_temp_sd[1:75, ], -->
-<!-- #                                     champaign_temp[1:75, ]+2*champaign_temp_sd[1:75, ]), -->
-<!-- #                        sd = c(madison_temp_sd[1:75, ], minneapolis_temp_sd[1:75, ], -->
-<!-- #                               detroit_temp_sd[1:75, ], champaign_temp_sd[1:75, ]),  -->
-<!-- #                        location = c(rep("Madison", 150), rep("Minneapolis", 150), -->
-<!-- #                                     rep("Detroit", 150), rep("Champaign", 150)), -->
-<!-- #                        model = rep(c(rep("tPCA LASSO", 75), rep("tpPCA LASSO", 75)), times=4),  -->
-<!-- #                        Year = rep(1820:1894, 8)) -->
-
-<!-- ts1 <- ggplot(time.dat, aes(x=Year, y=Temperature, group=model, color=model)) +  -->
-<!--   geom_line(size=1.25, alpha=0.8) + facet_grid(location ~ .) +  -->
-<!--   #scale_fill_brewer(palette="RdBu") + -->
-<!--   geom_ribbon(aes(ymin=temp_min, ymax=temp_max, fill=model), alpha=0.3) + -->
-<!--   theme(text=element_text(size=10)) #+ -->
-<!-- # geom_vline(xintercept=1846) + geom_vline(xintercept=1848)s -->
-<!-- library(gridExtra) -->
-<!-- # grid.arrange(ts1, top=textGrob("(a)")) -->
-<!-- ts1 -->
-
-
-<!-- library(cowplot) -->
-<!-- obs.dat <- data.frame(Year=1820:1894, N=nobs_outlier) -->
-<!-- ts2 <- ggplot(obs.dat, aes(x=Year, y=N)) + geom_bar(stat="identity") + -->
-<!--   labs(y=expression(m[t])) + theme(text=element_text(size=10)) +  -->
-<!--   scale_y_continuous(breaks=c(50, 150, 250)) #+ -->
-<!-- # geom_vline(xintercept=1846) + -->
-<!-- # geom_vline(xintercept=1848) -->
-<!-- # grid.arrange(ts2, top=textGrob("(b)")) -->
-<!-- ts2 -->
-<!-- # ggdraw() + -->
-<!-- #   draw_plot(ts1, 0.01, 0.2, 1, .8) + -->
-<!-- #   draw_plot(ts2, 0, 0, 0.85, 0.2) -->
-<!-- ggdraw() + -->
-<!--   draw_plot(grid.arrange(ts1, top=textGrob("(a)")), 0.01, 0.2, 1, .8) + -->
-<!--   draw_plot(grid.arrange(ts2, top=textGrob("(b)")), 0, 0, 0.85, 0.2) -->
-<!-- # plot_grid(ts1, ts2, ncol=1, align="h") -->
-
-
-<!-- library(ggplot2) -->
-<!-- library(grid) -->
-<!-- library(gridExtra) -->
-<!-- library(gtable) -->
-
-<!-- gtable_frame <- function(g, width=unit(1,"null"), height=unit(1,"null")){ -->
-<!--   panels <- g[["layout"]][grepl("panel", g[["layout"]][["name"]]), ] -->
-<!--   ll <- unique(panels$l) -->
-<!--   tt <- unique(panels$t) -->
-
-<!--   fixed_ar <- g$respect -->
-<!--   if(fixed_ar) { # there lies madness, want to align despite aspect ratio constraints -->
-<!--     ar <- as.numeric(g$heights[tt[1]]) / as.numeric(g$widths[ll[1]]) -->
-<!--     height <- width * ar -->
-<!--     g$respect <- FALSE -->
-<!--   } -->
-
-<!--   core <- g[seq(min(tt), max(tt)), seq(min(ll), max(ll))] -->
-<!--   top <- g[seq(1, min(tt)-1), ] -->
-<!--   bottom <- g[seq(max(tt)+1, nrow(g)), ] -->
-<!--   left <- g[, seq(1, min(ll)-1)] -->
-<!--   right <- g[, seq(max(ll)+1, ncol(g))] -->
-
-<!--   fg <- nullGrob() -->
-<!--   lg <-  if(length(left))  g[seq(min(tt), max(tt)), seq(1, min(ll)-1)] else fg -->
-<!--   rg <- if(length(right)) g[seq(min(tt), max(tt)), seq(max(ll)+1,ncol(g))] else fg -->
-<!--   grobs = list(fg, g[seq(1, min(tt)-1), seq(min(ll), max(ll))], fg,  -->
-<!--                lg, g[seq(min(tt), max(tt)), seq(min(ll), max(ll))], rg,  -->
-<!--                fg, g[seq(max(tt)+1, nrow(g)), seq(min(ll), max(ll))], fg) -->
-<!--   widths <- unit.c(sum(left$widths), width, sum(right$widths)) -->
-<!--   heights <- unit.c(sum(top$heights), height, sum(bottom$heights)) -->
-<!--   all <- gtable_matrix("all", grobs = matrix(grobs, ncol=3, nrow=3, byrow = TRUE),  -->
-<!--                        widths = widths, heights = heights) -->
-<!--   all[["layout"]][5,"name"] <- "panel" # make sure knows where the panel is for nested calls -->
-<!--   if(fixed_ar)  all$respect <- TRUE -->
-<!--   all -->
-<!-- } -->
-
-
-<!-- p1 <- ggplotGrob(ts1) -->
-<!-- p2 <- ggplotGrob(ts2) -->
-<!-- fp1 <- gtable_frame(p1, height=unit(4, "null")) -->
-<!-- fp2 <- gtable_frame(p2) -->
-<!-- grid.newpage() -->
-<!-- grid.draw(rbind(fp1, fp2)) -->
-
-
-<!-- layout(matrix(1:4, 2, 2)) -->
-<!-- matplot(madison_temp[1:75, ], type='l', lty=1) -->
-<!-- for(i in 1:2) { -->
-<!--   lines(madison_temp[1:75, i] + 2*madison_temp_sd[1:75, i], type= 'l', lty=2, col=i) -->
-<!--   lines(madison_temp[1:75, i] - 2*madison_temp_sd[1:75, i], type= 'l', lty=2, col=i) -->
-<!-- } -->
-<!-- # abline(v=76) -->
-<!-- matplot(minneapolis_temp[1:75, ], type='l', lty=1) -->
-<!-- for(i in 1:2) { -->
-<!--   lines(minneapolis_temp[1:75, i] + 2*minneapolis_temp_sd[1:75, i], type= 'l', lty=2, col=i) -->
-<!--   lines(minneapolis_temp[1:75, i] - 2*minneapolis_temp_sd[1:75, i], type= 'l', lty=2, col=i) -->
-<!-- } -->
-<!-- # abline(v=76) -->
-<!-- matplot(detroit_temp[1:75, ], type='l', lty=1) -->
-<!-- for(i in 1:2) { -->
-<!--   lines(detroit_temp[1:75, i] + 2*detroit_temp_sd[1:75, i], type= 'l', lty=2, col=i) -->
-<!--   lines(detroit_temp[1:75, i] - 2*detroit_temp_sd[1:75, i], type= 'l', lty=2, col=i) -->
-<!-- } -->
-<!-- # abline(v=76) -->
-<!-- matplot(champaign_temp[1:75, ], type='l', lty=1) -->
-<!-- for(i in 1:2) { -->
-<!--   lines(champaign_temp[1:75, i] + 2*champaign_temp_sd[1:75, i], type= 'l', lty=2, col=i) -->
-<!--   lines(champaign_temp[1:75, i] - 2*champaign_temp_sd[1:75, i], type= 'l', lty=2, col=i) -->
-<!-- } -->
-<!-- # abline(v=76) -->
-
-
-<!-- layout(matrix(1:4, 2, 2)) -->
-<!-- matplot(madison_temp, type='l', lty=1) -->
-<!-- abline(v=76) -->
-<!-- matplot(minneapolis_temp, type='l', lty=1) -->
-<!-- abline(v=76) -->
-<!-- matplot(detroit_temp, type='l', lty=1) -->
-<!-- abline(v=76) -->
-<!-- matplot(champaign_temp, type='l', lty=1) -->
-<!-- abline(v=76) -->
-
-
-<!-- layout(matrix(1:4, 2, 2)) -->
-<!-- matplot(madison_temp_adjusted, type='l', lty=1) -->
-<!-- abline(v=76) -->
-<!-- matplot(minneapolis_temp_adjusted, type='l', lty=1) -->
-<!-- abline(v=76) -->
-<!-- matplot(detroit_temp_adjusted, type='l', lty=1) -->
-<!-- abline(v=76) -->
-<!-- matplot(champaign_temp_adjusted, type='l', lty=1) -->
-<!-- abline(v=76) -->
-
-<!-- ``` -->
-
-<!-- \begin{figure} -->
-<!-- \centering\includegraphics[width=0.95\linewidth]{observer-sensitivity_files/figure-latex/TimeSeries-5.pdf} -->
-<!-- \caption{Posterior predictions of mean July temperature with associated 95\% credible intervals at Champaign, Illinois, Detriot, Michigan, Madison, Wisconsin, and Minneapolis, Minnesota (a). The temporal change in the number of observations is shown in (b). Notice that the uncertainties in the point reconstructions are smallest in years with larger samples and largest in years with few samples. In general, the robust pPCR credible intervals are larger than the robust PCR credible intervals.} -->
-<!-- \label{fig:time} -->
-<!-- \end{figure} -->
-
-
-<!-- ## Full time series of plots in appendix -->
-
-<!-- ```{r fortPlotstPCAFull, echo=FALSE, include=TRUE, fig.height=6, fig.width=6, fig.keep='all', fig.show='hide', cache=TRUE, eval=TRUE} -->
-<!-- fort.raster.tmp <- fort.raster -->
-<!-- fort.raster.sd <- fort.raster -->
-<!-- min.fort <- rep(NA, t) -->
-<!-- max.fort <- rep(NA, t) -->
-<!-- min.fort.sd <- rep(NA, t) -->
-<!-- max.fort.sd <- rep(NA, t) -->
-
-<!-- for(i in 1:t){ -->
-<!--   values(fort.raster.tmp[[i]])[ - na.rows] <- y_tilde_mean_tpca_lasso_outlier[, i] -->
-<!--   values(fort.raster.sd[[i]])[ - na.rows] <- y_tilde_sd_tpca_lasso_outlier[, i] -->
-<!--   min.fort[i] <- min(y_tilde_mean_tpca_lasso_outlier,  -->
-<!--                      y_tilde_mean_tppca_lasso_outlier) -->
-<!--   max.fort[i] <- max(y_tilde_mean_tpca_lasso_outlier,  -->
-<!--                      y_tilde_mean_tppca_lasso_outlier) -->
-<!--   min.fort.sd[i] <- min(y_tilde_sd_tpca_lasso_outlier,  -->
-<!--                         y_tilde_sd_tppca_lasso_outlier) -->
-<!--   max.fort.sd[i] <- max(y_tilde_sd_tpca_lasso_outlier,  -->
-<!--                         y_tilde_sd_tppca_lasso_outlier) -->
-<!-- } -->
-
-<!-- par(mfrow=c(4, 4), mar=c(3, 3, 1.75, 1.5) + 0.1, oma=c(0, 0, 0.25, 0.5) + 0.1, mgp=c(2, 1, 0)) -->
-<!-- # par(mfrow=c(4, 4), mar=c(3, 3, 1, 1) + 0.1, oma=c(0, 0, 0, 0) + 0.1, mgp=c(2, 1, 0)) -->
-<!-- for(i in 1:t) { -->
-<!--   image.plot(fort.raster.tmp[[i]], main = paste(i + 1819),  -->
-<!--              col=rev(colorRampPalette(brewer.pal(8, "RdBu"))(64)), -->
-<!--              zlim = c(min(min.fort), max(max.fort)),  -->
-<!--              ylab = 'latitude', xlab='longitude', cex.main=1.5) -->
-<!--   map(database = 'state', add = TRUE, col = 'black') -->
-<!--   points(prism.points[H.list[[i]], ], pch = 16, cex = 1) -->
-<!-- } -->
-
-<!-- par(mfrow=c(4, 4), mar=c(3, 3, 1.75, 1.5) + 0.1, oma=c(0, 0, 0.25, 0.5) + 0.1, mgp=c(2, 1, 0)) -->
-<!-- # par(mfrow=c(4, 4), mar=c(3, 3, 1, 1) + 0.1, oma=c(0, 0, 0, 0) + 0.1, mgp=c(2, 1, 0)) -->
-<!-- for(i in 1:t){ -->
-<!--   image.plot(fort.raster.sd[[i]], main = paste(i + 1819), #col = cm.colors(64), -->
-<!--              col=colorRampPalette(brewer.pal(8, "YlGn"))(64), -->
-<!--              zlim = c(min(min.fort.sd), max(max.fort.sd)),   -->
-<!--              ylab = 'latitude', xlab='longitude', cex.main=1.5) -->
-<!--   map(database = 'state', add = TRUE, col = 'black') -->
-<!--   points(prism.points[H.list[[i]], ], pch = 16, cex = 1, col = 'black') -->
-<!-- } -->
-<!-- ``` -->
-
-<!-- ```{r fortPlotstpPCAFull, echo=FALSE, include=TRUE, fig.height=6, fig.width=6, fig.keep='all', fig.show='hide', cache=TRUE, eval=TRUE} -->
-<!-- fort.raster.tmp <- fort.raster -->
-<!-- fort.raster.sd <- fort.raster -->
-<!-- min.fort <- rep(NA, t) -->
-<!-- max.fort <- rep(NA, t) -->
-<!-- min.fort.sd <- rep(NA, t) -->
-<!-- max.fort.sd <- rep(NA, t) -->
-
-<!-- for(i in 1:t){ -->
-<!--   values(fort.raster.tmp[[i]])[ - na.rows] <- y_tilde_mean_tpca_lasso_outlier[, i] -->
-<!--   values(fort.raster.sd[[i]])[ - na.rows] <- y_tilde_sd_tpca_lasso_outlier[, i] -->
-<!--   min.fort[i] <- min(y_tilde_mean_tpca_lasso_outlier,  -->
-<!--                      y_tilde_mean_tppca_lasso_outlier) -->
-<!--   max.fort[i] <- max(y_tilde_mean_tpca_lasso_outlier,  -->
-<!--                      y_tilde_mean_tppca_lasso_outlier) -->
-<!--   min.fort.sd[i] <- min(y_tilde_sd_tpca_lasso_outlier,  -->
-<!--                         y_tilde_sd_tppca_lasso_outlier) -->
-<!--   max.fort.sd[i] <- max(y_tilde_sd_tpca_lasso_outlier,  -->
-<!--                         y_tilde_sd_tppca_lasso_outlier) -->
-<!-- } -->
-<!-- par(mfrow=c(4, 4), mar=c(3, 3, 1.75, 1.5) + 0.1, oma=c(0, 0, 0.25, 0.5) + 0.1, mgp=c(2, 1, 0)) -->
-<!-- # par(mfrow=c(4, 4), mar=c(3, 3, 1, 1) + 0.1, oma=c(0, 0, 0, 0) + 0.1, mgp=c(2, 1, 0)) -->
-<!-- for(i in 1:t) { -->
-<!--   image.plot(fort.raster.tmp[[i]], main = paste(i + 1819), #col = topo.colors(64), -->
-<!--              col=rev(colorRampPalette(brewer.pal(8, "RdBu"))(64)), -->
-<!--              zlim = c(min(min.fort), max(max.fort)),  -->
-<!--              ylab = 'latitude', xlab='longitude', cex.main=1.5) -->
-<!--   map(database = 'state', add = TRUE, col = 'black') -->
-<!--   points(prism.points[H.list[[i]], ], pch = 16, cex = 1) -->
-<!-- } -->
-
-<!-- par(mfrow=c(4, 4), mar=c(3, 3, 1.75, 1.5) + 0.1, oma=c(0, 0, 0.25, 0.5) + 0.1, mgp=c(2, 1, 0)) -->
-<!-- for(i in 1:t){ -->
-<!--   image.plot(fort.raster.sd[[i]], main = paste(i + 1819), #col = cm.colors(64), -->
-<!--              col=colorRampPalette(brewer.pal(8, "YlGn"))(64), -->
-<!--              zlim = c(min(min.fort.sd), max(max.fort.sd)),  -->
-<!--              ylab = 'latitude', xlab='longitude', cex.main=1.5) -->
-<!--   map(database = 'state', add = TRUE, col = 'black') -->
-<!--   points(prism.points[H.list[[i]], ], pch = 16, cex = 1, col = 'black') -->
-<!-- } -->
-<!-- ``` -->
+## Remove outlier from data
+
+```{r fortDataRemoveOutlier, echo=FALSE, eval=TRUE}
+# data(fortFunctions)
+
+mu_outlier <- mu
+nobs_outlier <- nobs
+outlier_idx <- which(loo_pca_ssvs_fort$pareto_k == max(loo_pca_ssvs_fort$pareto_k))
+nobs_outlier[tt[outlier_idx]]<- nobs_outlier[tt[outlier_idx]] - 1
+Y.list.outlier <- Y.list
+Y_sparse_outlier <- Y_sparse
+H.list.outlier <- H.list
+tt_outlier <- tt[-outlier_idx]
+
+
+Y.list.outlier[[tt[outlier_idx]]] <-
+  Y.list.outlier[[tt[outlier_idx]]][-which(Y.list.outlier[[tt[outlier_idx]]] ==
+                                             min(Y.list.outlier[[tt[outlier_idx]]]))]
+mu_outlier[tt[outlier_idx]] <- mean(Y.list.outlier[[tt[outlier_idx]]])
+H.list.outlier[[tt[outlier_idx]]] <-
+  H.list.outlier[[tt[outlier_idx]]][-which(Y.list.outlier[[tt[outlier_idx]]] ==
+                                             min(Y.list.outlier[[tt[outlier_idx]]]))]
+Y_sparse_outlier <- Y_sparse[-outlier_idx]
+H_sparse_outlier <- H_sparse[-outlier_idx]
+```
+
+## Re-fit candidate models
+
+```{r, cache=TRUE}
+start_outlier <- Sys.time()
+```
+
+```{r PCASSVSOutlier, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE}
+jinits <- function(){
+  list(beta=matrix(rnorm(p, 0, 10), p, t), s_inv=runif(t, 0, 100))
+}
+
+dat <- list(Y=Y_sparse_outlier, X=X_PCA$X_pca[, 1:p], p=p, D=c(X_PCA$sdev^2),
+            H=H_sparse_outlier, t=t, tt=tt_outlier, N_total=length(tt_outlier))
+
+params <- c("gamma", "beta", "s_inv", "tau2_beta")
+
+samps <- foreach(i=1:n_chains, .inorder = FALSE,
+                 .packages = c("rjags", "random"), .combine = "mcmc.combine",
+                 .multicombine = TRUE) %dopar% {
+                   model.jags <- jags.model("./models-sens/PCASSVS.txt",
+                                            data=dat, inits=jinits, n.chain=1, n.adapt=n_adapt)
+                   update(model.jags, n_burn)
+                   result <- coda.samples(model.jags, params, n_iter)
+                   return(result)
+                 }
+
+## Diagnostic Checks
+make_diagnostics(samps, t=t, p=p, nobs=nobs,  model="pca_ssvs", type = "outlier-removed")
+
+samps <- combine.mcmc(samps)
+n_samps <- dim(samps)[1]
+
+s_invs <- matrix(0, n_samps, t)
+betas <- array(0, dim=c(n_samps, t, p))
+for(i in 1:t){
+  s_invs[, i] <- samps[, paste("s_inv[", i, "]", sep="")]
+  for(j in 1:p){
+    betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")]
+  }
+}
+
+summaries <- processPCASamples(t, p, n_samps, N, betas, s_invs,
+                               X_PCA$X_pca[, 1:p], Y.list.outlier,
+                               H.list.outlier,  mu_outlier, nobs_outlier, n_thin,
+                               preds=FALSE)
+
+y_tilde_mean_pca_ssvs_outlier <- summaries$y_tilde_mean
+y_tilde_sd_pca_ssvs_outlier <- summaries$y_tilde_sd
+loo_pca_ssvs_outlier <- loo(matrix(unlist(summaries$log_like),
+                                        n_samps / n_thin, sum(nobs_outlier), byrow=FALSE))
+rm(samps, summaries, betas, s_invs)
+```
+
+```{r PCALassoOutlier, eval=TRUE, cache=TRUE, echo=FALSE, eval=TRUE}
+jinits <- function(){
+  list(beta=matrix(rnorm(p, 0, 10), p, t), s_inv=runif(t, 0, 100),
+       gamma2=matrix(rgamma(p*t, 1, 1), p, t), lambda2 = rexp(t))
+}
+
+dat <- list(Y=Y_sparse_outlier, X=X_PCA$X_pca[, 1:p], p=p, H=H_sparse_outlier,
+            t=t, tt=tt_outlier, N_total=length(tt_outlier), D=c(X_PCA$sdev^2))
+
+params <- c("beta", "s_inv", "gamma2", "lambda2")
+
+samps <- foreach(i=1:n_chains, .inorder = FALSE,
+                 .packages = c("rjags", "random"), .combine = "mcmc.combine",
+                 .multicombine = TRUE) %dopar% {
+                   model.jags <- jags.model("./models-sens/PCALasso.txt",
+                                            data=dat, inits=jinits, n.chain=1, n.adapt=n_adapt)
+                   update(model.jags, n_burn)
+                   result <- coda.samples(model.jags, params, n_iter)
+                   return(result)
+                 }
+
+## Diagnostic Checks
+make_diagnostics(samps, t=t, p=p, nobs=nobs,  model="pca_lasso", type="outlier-removed")
+
+samps <- combine.mcmc(samps)
+n_samps <- dim(samps)[1]
+
+s_invs <- matrix(0, n_samps, t)
+betas <- array(0, dim=c(n_samps, t, p))
+for(i in 1:t){
+  s_invs[, i] <- samps[, paste("s_inv[", i, "]", sep="")]
+  for(j in 1:p){
+    betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")]
+  }
+}
+
+summaries <- processPCASamples(t, p, n_samps, N, betas, s_invs,
+                               X_PCA$X_pca[, 1:p], Y.list.outlier,
+                               H.list.outlier, mu_outlier, nobs_outlier, n_thin,
+                               preds=FALSE)
+
+y_tilde_mean_pca_lasso_outlier <- summaries$y_tilde_mean
+y_tilde_sd_pca_lasso_outlier <- summaries$y_tilde_sd
+loo_pca_lasso_outlier <- loo(matrix(unlist(summaries$log_like),
+                                         n_samps / n_thin, sum(nobs_outlier), byrow=FALSE))
+rm(samps, summaries, betas, s_invs)
+```
+
+```{r tPCASSVSOutlier, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE}
+jinits <- function(){
+  list(beta=matrix(rnorm(p, 0, 10), p, t), s_inv=runif(t, 0, 100))
+}
+
+dat <- list(Y=Y_sparse_outlier, X=X_PCA$X_pca[, 1:p], p=p, D=c(X_PCA$sdev^2),
+            H=H_sparse_outlier, t=t, tt=tt_outlier, N_total=length(tt_outlier))
+
+params <- c("gamma", "beta", "s_inv", "tau2_beta", "nu", "v_inv", "log_like")
+
+samps <- foreach(i=1:n_chains, .inorder = FALSE,
+                 .packages = c("rjags", "random"), .combine = "mcmc.combine",
+                 .multicombine = TRUE) %dopar% {
+                   model.jags <- jags.model("./models-sens/tPCASSVS.txt",
+                                            data=dat, inits=jinits, n.chain=1, n.adapt=n_adapt)
+                   update(model.jags, n_burn)
+                   result <- coda.samples(model.jags, params, n_iter)
+                   return(result)
+                 }
+
+## Diagnostic Checks
+make_diagnostics(samps, t=t, p=p, nobs=nobs,  model="tpca_ssvs", type="outlier-removed")
+
+samps <- combine.mcmc(samps)
+n_samps <- dim(samps)[1]
+
+nus <- matrix(0, n_samps, t)
+v_invs <- matrix(0, n_samps, sum(nobs_outlier))
+s_invs <- matrix(0, n_samps, t)
+betas <- array(0, dim=c(n_samps, t, p))
+log_like <- matrix(0, n_samps, sum(nobs_outlier))
+for(i in 1:t){
+  s_invs[, i] <- samps[, paste("s_inv[", i, "]", sep="")]
+  nus[, i] <- samps[, paste("nu[", i, "]", sep="")]
+  for(j in 1:p){
+    betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")]
+  }
+}
+for(i in 1:sum(nobs_outlier)){
+  log_like[, i] <- log(samps[, paste("log_like[", i, "]", sep="")])
+  v_invs[, i] <- samps[, paste("v_inv[", i, "]", sep="")]
+}
+
+summaries <- processPCASamplesT2(t, p, n_samps, N, betas, s_invs, nus, v_invs,
+                                 X_PCA$X_pca[, 1:p], Y.list.outlier,
+                                 H.list.outlier, mu_outlier, nobs_outlier, n_thin,
+                                 preds=FALSE)
+
+y_tilde_mean_tpca_ssvs_outlier <- summaries$y_tilde_mean
+y_tilde_sd_tpca_ssvs_outlier <- summaries$y_tilde_sd
+loo_tpca_ssvs_outlier <- loo(log_like)
+rm(samps, nus, v_invs, s_invs, betas, log_like, summaries)
+```
+
+```{r tPCALassoOutlier, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE}
+jinits <- function(){
+  list(beta=matrix(rnorm(p, 0, 10), p, t), s_inv=runif(t, 0, 100),
+       gamma2=matrix(rgamma(p*t, 1, 1), p, t), lambda2 = rexp(t))
+}
+
+dat <- list(Y=Y_sparse_outlier, X=X_PCA$X_pca[, 1:p], p=p, H=H_sparse_outlier, t=t,
+            tt=tt_outlier, N_total=length(tt_outlier), D=(X_PCA$sdev^2)[1:p])
+
+params <- c("gamma2", "lambda2", "beta", "v_inv", "nu", "s_inv", "log_like")
+
+samps <- foreach(i=1:n_chains, .inorder = FALSE,
+                 .packages = c("rjags", "random"), .combine = "mcmc.combine",
+                 .multicombine = TRUE) %dopar% {
+                   model.jags <- jags.model("./models-sens/tPCALasso.txt",
+                                            data=dat, inits=jinits, n.chain=1, n.adapt=n_adapt)
+                   update(model.jags, n_burn)
+                   result <- coda.samples(model.jags, params, n_iter)
+                   return(result)
+                 }
+
+## Diagnostic Checks
+make_diagnostics(samps, t=t, p=p, nobs=nobs,  model="tpca_lasso", type="outlier-removed")
+
+samps <- combine.mcmc(samps)
+n_samps <- dim(samps)[1]
+
+nus <- matrix(0, n_samps, t)
+v_invs <- matrix(0, n_samps, sum(nobs_outlier))
+s_invs <- matrix(0, n_samps, t)
+betas <- array(0, dim=c(n_samps, t, p))
+log_like <- matrix(0, n_samps, sum(nobs_outlier))
+for(i in 1:t){
+  s_invs[, i] <- samps[, paste("s_inv[", i, "]", sep="")]
+  nus[, i] <- samps[, paste("nu[", i, "]", sep="")]
+  for(j in 1:p){
+    betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")]
+  }
+}
+for(i in 1:sum(nobs_outlier)){
+  log_like[, i] <- log(samps[, paste("log_like[", i, "]", sep="")])
+  v_invs[, i] <- samps[, paste("v_inv[", i, "]", sep="")]
+}
+
+summaries <- processPCASamplesT2(t, p, n_samps, N, betas, s_invs, nus, v_invs,
+                                 X_PCA$X_pca[, 1:p], Y.list.outlier, H.list.outlier, mu_outlier, nobs_outlier,
+                                 n_thin, preds=FALSE)
+
+y_tilde_mean_tpca_lasso_outlier <- summaries$y_tilde_mean
+y_tilde_sd_tpca_lasso_outlier <- summaries$y_tilde_sd
+loo_tpca_lasso_outlier <- loo(log_like)
+rm(samps, nus, v_invs, s_invs, betas, log_like, summaries)
+```
+
+```{r pPCASSVSOutlier, cache=TRUE, echo=FALSE, cache.lazy=FALSE, eval=TRUE}
+jinits <- function(){
+  list(s_beta_inv=runif(1, 0, 10), beta=matrix(rnorm(p, 0, 10), p, t),
+       tau_inv=runif(t, 0, 100), s_inv=runif(1, 0, 10))
+}
+
+dat <- list(Y=Y_sparse_outlier, X=X_PPCA$X_center, H=H_sparse_outlier, p=p,
+            K_hat=X_PPCA$K_hat, tKK=X_PPCA$Lambda, I_p=diag(p), t=t,
+            tt=tt_outlier, N_total=length(tt_outlier))
+
+params <- c("gamma", "beta", "tau2", "s2", "tau2_beta")
+
+samps <- foreach(i=1:n_chains, .inorder = FALSE,
+                 .packages = c("rjags", "random"), .combine = "mcmc.combine",
+                 .multicombine = TRUE) %dopar% {
+                   model.jags <- jags.model("./models-sens/pPCASSVS.txt",
+                                            data=dat, inits=jinits, n.chain=1, n.adapt=n_adapt)
+                   update(model.jags, n_burn)
+                   result <- coda.samples(model.jags, params, n_iter)
+                   return(result)
+                 }
+
+## Diagnostics
+make_diagnostics(samps, t=t, p=p, nobs=nobs,  model="ppca_ssvs", type="outlier-removed")
+
+samps <- combine.mcmc(samps)
+n_samps <- dim(samps)[1]
+
+tau2s <- matrix(0, n_samps, t)
+s2s <- c(samps[, "s2"])
+betas <- array(0, dim=c(n_samps, t, p))
+for(i in 1:t){
+  tau2s[, i] <- samps[, paste("tau2[", i, "]", sep="")]
+  for(j in 1:p){
+    betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")]
+  }
+}
+
+summaries <- processSamples(t, p, n_samps, N, betas, tau2s, s2s,
+                            Y.list.outlier, H.list.outlier, nobs_outlier,
+                            X_PPCA$X_center, X_PPCA$Lambda, diag(p),
+                            X_PPCA$K_hat, mu_outlier, n_thin, preds=FALSE)
+
+y_tilde_mean_ppca_ssvs_outlier <- summaries$y_tilde_mean
+y_tilde_sd_ppca_ssvs_outlier <- summaries$y_tilde_sd
+loo_ppca_ssvs_outlier <- loo(matrix(unlist(summaries$log_like),
+                                         n_samps / n_thin, sum(nobs_outlier), byrow=FALSE))
+rm(samps, summaries, betas, s2s, tau2s)
+```
+
+```{r pPCALassoOutlier, cache=TRUE, echo=FALSE, cache.lazy=FALSE, eval=TRUE}
+jinits <- function(){
+  list(beta=matrix(rnorm(t*p, 0, 10), p, t), tau_inv=runif(t, 0, 100),
+       s_inv=runif(1, 0, 10))
+}
+
+dat <- list(Y=Y_sparse_outlier, X=X_PPCA$X_center, H=H_sparse_outlier, p=p,
+            K_hat=X_PPCA$K_hat, tKK=X_PPCA$Lambda, I_p=diag(p), t=t,
+            tt=tt_outlier, N_total=length(tt_outlier))
+
+params <- c("gamma2", "lambda2", "beta", "tau2", "s2")
+
+samps <- foreach(i=1:n_chains, .inorder = FALSE,
+                 .packages = c("rjags", "random"), .combine = "mcmc.combine",
+                 .multicombine = TRUE) %dopar% {
+                   model.jags <- jags.model("./models-sens/pPCALasso.txt",
+                                            data=dat, inits=jinits, n.chain=1, n.adapt=n_adapt)
+                   update(model.jags, n_burn)
+                   result <- coda.samples(model.jags, params, n_iter)
+                   return(result)
+                 }
+
+## Diagnostic Checks
+make_diagnostics(samps, t=t, p=p, nobs=nobs,  model="ppca_lasso", type="outlier-removed")
+
+samps <- combine.mcmc(samps)
+n_samps <- dim(samps)[1]
+
+tau2s <- matrix(0, n_samps, t)
+s2s <- c(samps[, "s2"])
+betas <- array(0, dim=c(n_samps, t, p))
+for(i in 1:t){
+  tau2s[, i] <- samps[, paste("tau2[", i, "]", sep="")]
+  for(j in 1:p){
+    betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")]
+  }
+}
+
+summaries <- processSamples(t, p, n_samps, N, betas, tau2s, s2s,
+                            Y.list.outlier, H.list.outlier, nobs_outlier,
+                            X_PPCA$X_center, X_PPCA$Lambda, diag(p),
+                            X_PPCA$K_hat, mu_outlier, n_thin, preds=FALSE)
+
+y_tilde_mean_ppca_lasso_outlier <- summaries$y_tilde_mean
+y_tilde_sd_ppca_lasso_outlier <- summaries$y_tilde_sd
+loo_ppca_lasso_outlier <- loo(matrix(unlist(summaries$log_like),
+                                          n_samps / n_thin, sum(nobs_outlier), byrow=FALSE))
+rm(samps, summaries, betas, s2s, tau2s)
+```
+
+```{r tpPCASSVSOutlier, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE}
+jinits <- function(){
+  list(beta=matrix(rnorm(p, 0, 10), p, t), s_inv=runif(1, 0, 10),
+       tau_inv=runif(t, 0, 100)) }
+
+dat <- list(Y=Y_sparse_outlier, X=X_PPCA$X_center, H=H_sparse_outlier, p=p,
+            K_hat=X_PPCA$K_hat, tKK=X_PPCA$Lambda, I_p=diag(p), t=t,
+            tt=tt_outlier, N_total=length(tt_outlier))
+
+params <- c("gamma", "beta", "s2", "tau2_beta", "nu", "v_inv", "log_like",
+            "tau2")
+
+samps <- foreach(i=1:n_chains, .inorder = FALSE,
+                 .packages = c("rjags", "random"), .combine = "mcmc.combine",
+                 .multicombine = TRUE) %dopar% {
+                   model.jags <- jags.model("./models-sens/tpPCASSVS.txt",
+                                            data=dat, inits=jinits, n.chain=1, n.adapt=n_adapt)
+                   update(model.jags, n_burn)
+                   result <- coda.samples(model.jags, params, n_iter)
+                   return(result)
+                 }
+
+## Diagnostics
+make_diagnostics(samps, t=t, p=p, nobs=nobs,  model="tppca_ssvs", type="outlier-removed")
+
+samps <- combine.mcmc(samps)
+n_samps <- dim(samps)[1]
+
+nus <- matrix(0, n_samps, t)
+v_invs <- matrix(0, n_samps, sum(nobs_outlier))
+s2s <- samps[, paste("s2")]
+tau2s <- matrix(0, n_samps, t)
+betas <- array(0, dim=c(n_samps, t, p))
+log_like <- matrix(0, n_samps, sum(nobs_outlier))
+for(i in 1:t){
+  tau2s[, i] <- samps[, paste("tau2[", i, "]", sep="")]
+  nus[, i] <- samps[, paste("nu[", i, "]", sep="")]
+  for(j in 1:p){
+    betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")]
+  }
+}
+for(i in 1:sum(nobs_outlier)){
+  log_like[, i] <- log(samps[, paste("log_like[", i, "]", sep="")])
+  v_invs[, i] <- samps[, paste("v_inv[", i, "]", sep="")]
+}
+
+summaries <- processSamplesT(t, p, n_samps, N, betas, tau2s, s2s, nus,
+                             v_invs, Y.list.outlier, H.list.outlier, nobs_outlier,
+                             X_PPCA$X_center, X_PPCA$Lambda, diag(p),
+                             X_PPCA$K_hat, mu_outlier, n_thin, preds=FALSE)
+
+y_tilde_mean_tppca_ssvs_outlier <- summaries$y_tilde_mean
+y_tilde_sd_tppca_ssvs_outlier <- summaries$y_tilde_sd
+loo_tppca_ssvs_outlier <- loo(log_like)
+rm(samps, nus, v_invs, s2s, tau2s, betas, log_like, summaries)
+```
+
+```{r tpPCALassoOutlier, cache=TRUE, cache.lazy=FALSE, echo=FALSE, eval=TRUE}
+jinits <- function(){
+  list(beta=matrix(rnorm(p, 0, 10), p, t),  s_inv=runif(1, 0, 10),
+       tau_inv=runif(t, 0, 100), gamma2=matrix(rgamma(p*t, 1, 1), p, t),
+       lambda2=rexp(t))
+}
+
+dat <- list(Y=Y_sparse_outlier, X=X_PPCA$X_center, H=H_sparse_outlier, p=p,
+            K_hat=X_PPCA$K_hat, tKK=X_PPCA$Lambda, I_p=diag(p), t=t,
+            tt=tt_outlier, N_total=length(tt_outlier))
+
+params <- c("gamma2", "lambda2", "beta", "nu", "s2", "tau2", "v_inv",
+            "log_like")
+
+samps <- foreach(i=1:n_chains, .inorder = FALSE,
+                 .packages = c("rjags", "random"), .combine = "mcmc.combine",
+                 .multicombine = TRUE) %dopar% {
+                   model.jags <- jags.model("./models-sens/tpPCALasso.txt",
+                                            data=dat, inits=jinits, n.chain=1, n.adapt=n_adapt)
+                   update(model.jags, n_burn)
+                   result <- coda.samples(model.jags, params, n_iter)
+                   return(result)
+                 }
+
+## Diagnostics
+make_diagnostics(samps, t=t, p=p, nobs=nobs,  model="tppca_lasso", type="outlier-removed")
+
+samps <- combine.mcmc(samps)
+n_samps <- dim(samps)[1]
+
+nus <- matrix(0, n_samps, t)
+v_invs <- matrix(0, n_samps, sum(nobs_outlier))
+s2s <- samps[, paste("s2")]
+tau2s <- matrix(0, n_samps, t)
+betas <- array(0, dim=c(n_samps, t, p))
+log_like <- matrix(0, n_samps, sum(nobs_outlier))
+for(i in 1:t){
+  tau2s[, i] <- samps[, paste("tau2[", i, "]", sep="")]
+  nus[, i] <- samps[, paste("nu[", i, "]", sep="")]
+  for(j in 1:p){
+    betas[, i, j] <- samps[, paste("beta[", j, ",", i, "]", sep="")]
+  }
+}
+for(i in 1:sum(nobs_outlier)){
+  log_like[, i] <- log(samps[, paste("log_like[", i, "]", sep="")])
+  v_invs[, i] <- samps[, paste("v_inv[", i, "]", sep="")]
+}
+
+summaries <- processSamplesT(t, p, n_samps, N, betas, tau2s, s2s, nus, v_invs,
+                             Y.list.outlier, H.list.outlier, nobs_outlier,
+                             X_PPCA$X_center, X_PPCA$Lambda, diag(p),
+                             X_PPCA$K_hat, mu_outlier, n_thin, preds=FALSE)
+
+y_tilde_mean_tppca_lasso_outlier <- summaries$y_tilde_mean
+y_tilde_sd_tppca_lasso_outlier <- summaries$y_tilde_sd
+loo_tppca_lasso_outlier <- loo(log_like)
+rm(samps, nus, v_invs, s2s, tau2s, betas, log_like, summaries)
+```
+
+```{r, cache=TRUE}
+finish_outlier <- Sys.time()
+outlier_time <- finish_outlier - start_outlier
+outlier_time
+```
+## Check for residual spatial autocorrelation
+
+```{r variogramPCA, cache=TRUE, echo=FALSE, warning=FALSE, message=FALSE, fig.height=6, fig.width=6, fig.keep='all', fig.show='hide', eval=TRUE, results='hide'}
+# data(fortFunctions)
+
+Y_obs <- rep(0, sum(nobs))
+Y_hat <- rep(0, sum(nobs))
+for (i in 1:sum(nobs)) {
+  Y_obs[i] <- Y_sparse[i] + mu[tt[i]]
+  Y_hat[i] <- y_tilde_mean_tpca_lasso_outlier[H_sparse[i], tt[i]]
+}
+outlier_idx <- which(Y_obs == min(Y_obs))
+Y_obs <- Y_obs[ - outlier_idx]
+Y_hat <- Y_hat[ - outlier_idx]
+resids <- Y_obs - Y_hat
+
+
+layout(matrix(1:3, 3, 1))
+hist(Y_obs)
+hist(Y_hat)
+hist(resids)
+# min(resids)
+
+# dists3 <- dist(as.matrix(locs[H_sparse, ]))
+# dists <- distGeo(as.matrix(locs[H_sparse, ]), as.matrix(locs[H_sparse, ]))
+dists <- fields::rdist.earth(as.matrix(locs[H_sparse, ]), as.matrix(locs[H_sparse, ]))
+# colnames(locs) <- c("X", "Y")
+locs.df <- data.frame(ID=1:length(locs[, 1]), X=locs[, 1], Y=locs[, 2])
+coordinates(locs.df) <- c("X", "Y")
+proj4string(locs.df) <- CRS("+proj=longlat +datum=WGS84")  ## for example
+utms <- spTransform(locs.df, CRS(paste("+proj=utm +zone=",15," ellps=WGS84",sep='')))
+
+num_breaks <- 100
+dists <- dist(utms@coords[H_sparse, ][ - outlier_idx, ])
+breaks <- seq(min(dists), max(dists), length=num_breaks)
+breaksstar <- seq(0, 50000, length=30)
+v0 <- variog(coords=utms@coords[H_sparse, ][ - outlier_idx, ], data=resids,
+             breaks=breaks, messages=FALSE)
+vstar <- variog(coords=utms@coords[H_sparse, ][ - outlier_idx, ], data=resids,
+                breaks=breaksstar, messages=FALSE)
+vtime <- variog(coords=utms@coords[H_sparse, ][tt == 56, ], data=resids[tt == 56],
+                messages=FALSE)
+
+# v1 <- variog(coords=utms@coords[H_sparse, ][ - outlier_idx,], data=resids,
+#              option="cloud", messages=FALSE)
+# v2 <- variog(coords=utms@coords[H_sparse, ][ - outlier_idx, ], data=resids,
+#              option="smooth", messages=FALSE)
+# v0.summary <- cbind(1:num_breaks, v0$v, v0$n)
+# colnames(v0.summary) <- c("lag", "semi-variance", "# of pairs")
+# v0.summary
+layout(matrix(1:2, 2, 1))
+plot(v0, type = "b", main = "Variogram: robust PCA LASSO")
+plot(vstar, type = "b", main = "Variogram: robust PCA LASSO small scale")
+plot(vtime, type = "b", main = "Variogram: robust PCA LASSO one year")
+# plot(v1, type = "b", main = "Variogram: robust PCA LASSO", bin.cloud=FALSE)
+# plot(v2, type = "b", main = "Variogram: robust PCA LASSO")
+# lines(v1)
+# points(v1$u, v1$v, type="p", col=adjust.color('black', alpha.f=0.025))
+# lines(v2)
+```
+
+```{r variogramPPCA, cache=TRUE, echo=FALSE, warning=FALSE, message=FALSE, fig.height=6, fig.width=6, fig.keep='all', fig.show='hide', eval=TRUE, results='hide'}
+# data(fortFunctions)
+
+Y_obs <- rep(0, sum(nobs))
+Y_hat <- rep(0, sum(nobs))
+for (i in 1:sum(nobs)) {
+  Y_obs[i] <- Y_sparse[i] + mu[tt[i]]
+  Y_hat[i] <- y_tilde_mean_tppca_lasso_outlier[H_sparse[i], tt[i]]
+}
+outlier_idx <- which(Y_obs == min(Y_obs))
+Y_obs <- Y_obs[ - outlier_idx]
+Y_hat <- Y_hat[ - outlier_idx]
+resids <- Y_obs - Y_hat
+
+layout(matrix(1:3, 3, 1))
+hist(Y_obs)
+hist(Y_hat)
+hist(resids)
+
+# dists3 <- dist(as.matrix(locs[H_sparse, ]))
+# dists <- distGeo(as.matrix(locs[H_sparse, ]), as.matrix(locs[H_sparse, ]))
+dists <- fields::rdist.earth(as.matrix(locs[H_sparse, ]), as.matrix(locs[H_sparse, ]))
+# colnames(locs) <- c("X", "Y")
+locs.df <- data.frame(ID=1:length(locs[, 1]), X=locs[, 1], Y=locs[, 2])
+coordinates(locs.df) <- c("X", "Y")
+proj4string(locs.df) <- CRS("+proj=longlat +datum=WGS84")  ## for example
+utms <- spTransform(locs.df, CRS(paste("+proj=utm +zone=",15," ellps=WGS84",sep='')))
+
+num_breaks <- 100
+dists <- dist(utms@coords[H_sparse, ][ - outlier_idx, ])
+breaks <- seq(min(dists), max(dists), length=num_breaks)
+breaksstar <- seq(0, 50000, length=30)
+v0 <- variog(coords=utms@coords[H_sparse, ][ - outlier_idx, ], data=resids,
+             breaks=breaks, messages=FALSE)
+vstar <- variog(coords=utms@coords[H_sparse, ][ - outlier_idx, ], data=resids,
+                breaks=breaksstar, messages=FALSE)
+# v1 <- variog(coords=utms@coords[H_sparse, ][ - outlier_idx,], data=resids,
+#              option="cloud", messages=FALSE)
+# v2 <- variog(coords=utms@coords[H_sparse, ][ - outlier_idx, ], data=resids,
+#              option="smooth", messages=FALSE)
+# v0.summary <- cbind(1:num_breaks, v0$v, v0$n)
+# colnames(v0.summary) <- c("lag", "semi-variance", "# of pairs")
+# v0.summary
+layout(matrix(1:2, 2, 1))
+plot(v0, type = "b", main = "Variogram: robust PPCA LASSO")
+plot(vstar, type = "b", main = "Variogram: robust PPCA LASSO small scale")
+# plot(v1, type = "b", main = "Variogram: robust PCA LASSO", bin.cloud=FALSE)
+# plot(v2, type = "b", main = "Variogram: robust PCA LASSO")
+# lines(v1)
+# points(v1$u, v1$v, type="p", col=adjust.color('black', alpha.f=0.025))
+# lines(v2)
+```
+
+## Leave-one-out approximations
+
+```{r loo_fort, echo=FALSE, message=FALSE, include=FALSE, warning=FALSE, fig.height=6, fig.width=12, eval=TRUE}
+## PCR
+par(mfrow=c(1, 2), mar=c(3.5, 3.5, 1.75, 1) + 0.1, oma=c(0, 0, 0.25, 0.25) + 0.1, mgp=c(2, 1, 0))
+plot_k(loo_tppca_lasso_fort$pareto_k, main="LASSO robust pPCR", ylim=c(0, 3.25),
+       cex.axis=1.5, cex.main=1.5, cex.lab=1.5)
+mtext("(a)",side=3,line=-1.9,adj=c(0.1),cex=2,col="black")
+plot_k(loo_tppca_lasso_outlier$pareto_k, main="LASSO robust pPCR outlier removed", ylim=c(0, 3.25),
+       cex.axis=1.5, cex.main=1.5, cex.lab=1.5)
+mtext("(b)",side=3,line=-1.9,adj=c(0.1),cex=2,col="black")
+```
+
+\begin{figure}
+\centering\includegraphics[width=0.95\linewidth]{observer-sensitivity_files/figure-latex/loo_fort-1.pdf}
+\caption{Plot of Fort data LOO Pareto shape estimates with (a) and without (b) outlying observation. Values less than 0.5 show good model performance and values over 1.0 show poor model performance.}
+\label{fig:fortlooplots}
+\end{figure}
+
+## Reconstruction Results
+
+```{r simTablesOutlier, echo=FALSE, message=FALSE, eval=TRUE}
+loo_preds_outlier <- data.frame(looic= NA)
+loo_ic_outlier <- data.frame(cbind(c(loo_pca_ssvs_outlier$looic,
+                                          loo_pca_lasso_outlier$looic),
+                                        c(loo_ppca_ssvs_outlier$looic,
+                                          loo_ppca_lasso_outlier$looic),
+                                        c(loo_tpca_ssvs_outlier$looic,
+                                          loo_tpca_lasso_outlier$looic),
+                                        c(loo_tppca_ssvs_outlier$looic,
+                                          loo_tppca_lasso_outlier$looic)))
+rownames(loo_ic_outlier) <- c("SSVS", "LASSO")
+colnames(loo_ic_outlier) <- c("PCR", "pPCR", "PCR", "pPCR")
+addtorow$pos <- list(0)
+addtorow$command <- c("\\multicolumn{1}{|r|}{} & \\multicolumn{2}{c|}{Gaussian} & \\multicolumn{2}{c|}{Robust} \\\\
+& PCR & pPCR & PCR & pPCR \\\\\n")
+print(xtable(loo_ic_outlier, digits=0, align=c("|r|rr|rr|")),
+      hline.after=c(-1, 0, nrow(loo_ic_fort)), add.to.row=addtorow,
+      file="loooutlier.tex", floating=FALSE, size="small",
+      include.colnames=FALSE)
+
+fortscores <- data.frame(cbind(c(loo_pca_ssvs_fort$looic,
+                                 loo_ppca_ssvs_fort$looic,
+                                 loo_pca_lasso_fort$looic,
+                                 loo_ppca_lasso_fort$looic),
+                               c(loo_tpca_ssvs_fort$looic,
+                                 loo_tppca_ssvs_fort$looic,
+                                 loo_tpca_lasso_fort$looic,
+                                 loo_tppca_lasso_fort$looic),
+                               c(loo_pca_ssvs_outlier$looic,
+                                 loo_ppca_ssvs_outlier$looic,
+                                 loo_pca_lasso_outlier$looic,
+                                 loo_ppca_lasso_outlier$looic),
+                               c(loo_tpca_ssvs_outlier$looic,
+                                 loo_tppca_ssvs_outlier$looic,
+                                 loo_tpca_lasso_outlier$looic,
+                                 loo_tppca_lasso_outlier$looic)))
+rownames(fortscores) <- c("SSVS PCR", "SSVS pPCR", "LASSO PCR", "LASSO pPCR")
+addtorow <- list()
+addtorow$pos <- list(0)
+addtorow$command <- c("\\multicolumn{1}{r}{} & \\multicolumn{2}{c}{Full Data} & \\multicolumn{2}{c}{Outlier Removed} \\\\
+ Model & Gaussian & Robust & Gaussian & Robust \\\\\n")
+print(xtable(fortscores, digits=0, align=c("rrrrr")),
+      hline.after=c(-1, 0, nrow(fortscores)), add.to.row=addtorow,
+      file="fort-scores.tex",
+      floating=FALSE, size="small", include.colnames=FALSE)
+
+```
+
+
+## Plot reconstructed surfaces
+
+```{r fortPlotstPCA, echo=TRUE, eval=TRUE, include=FALSE, fig.height=6, fig.width=12, eval=TRUE}
+library(RColorBrewer)
+fort.raster.tmp <- fort.raster
+fort.raster.sd <- fort.raster
+min.fort <- rep(NA, 4)
+max.fort <- rep(NA, 4)
+min.fort.sd <- rep(NA, 4)
+max.fort.sd <- rep(NA, 4)
+
+subset <- c(12, 28, 56, 71)
+for(ii in 1:4){
+  i <- subset[ii]
+  values(fort.raster.tmp[[i]])[ - na.rows] <- y_tilde_mean_tpca_lasso_outlier[, i]
+  values(fort.raster.sd[[i]])[ - na.rows] <- y_tilde_sd_tpca_lasso_outlier[, i]
+  min.fort[ii] <- min(y_tilde_mean_tpca_lasso_outlier[, i],
+                      y_tilde_mean_tppca_lasso_outlier[, i])
+  max.fort[ii] <- max(y_tilde_mean_tpca_lasso_outlier[, i],
+                      y_tilde_mean_tppca_lasso_outlier[, i])
+  min.fort.sd[ii] <- min(y_tilde_sd_tpca_lasso_outlier[, i],
+                         y_tilde_sd_tppca_lasso_outlier[, i])
+  max.fort.sd[ii] <- max(y_tilde_sd_tpca_lasso_outlier[, i],
+                         y_tilde_sd_tppca_lasso_outlier[, i])
+}
+
+
+layout(matrix(c(1, 1, 1, 2, 2, 2, 9, 3, 3, 3, 4, 4, 4, 10,
+                1, 1, 1, 2, 2, 2, 9, 3, 3, 3, 4, 4, 4, 10,
+                1, 1, 1, 2, 2, 2, 9, 3, 3, 3, 4, 4, 4, 10,
+                5, 5, 5, 6, 6, 6, 9, 7, 7, 7, 8, 8, 8, 10,
+                5, 5, 5, 6, 6, 6, 9, 7, 7, 7, 8, 8, 8, 10,
+                5, 5, 5, 6, 6, 6, 9, 7, 7, 7, 8, 8, 8, 10), 6, 14, byrow=TRUE))
+par(mar=c(3.5, 3.25, 1.75, 0.5) + 0.1, oma=c(0, 0, 0.25, 0.25) + 0.1)
+
+for(i in subset[1:2]){
+  if (i == subset[1]) {
+    image(fort.raster.tmp[[i]], main = paste(i + 1819), #col = topo.colors(64),
+          col=rev(colorRampPalette(brewer.pal(8, "RdBu"))(64)),
+          zlim = c(min(min.fort), max(max.fort)), ylab = '', xlab='', xaxt="n",
+          cex.main=2.5)
+    mtext("latitude", 2, line=2)
+  } else {
+    image(fort.raster.tmp[[i]], main = paste(i + 1819), #col = topo.colors(64),
+          col=rev(colorRampPalette(brewer.pal(8, "RdBu"))(64)),
+          zlim = c(min(min.fort), max(max.fort)), ylab = '', xlab='', yaxt="n",
+          xaxt="n", cex.main=2.5)
+  }
+  if(i == subset[1]){
+    mtext("(a)",side=3,line=-1.9,adj=c(0.1),cex=2,col="black")
+  }
+  map(database = 'state', add = TRUE, col = 'black')
+  points(prism.points[H.list[[i]], ], pch = 16, col = 'black', cex = 1.5)
+}
+
+for(i in subset[1:2]){
+  image(fort.raster.sd[[i]], main = paste(i + 1819),
+        col=colorRampPalette(brewer.pal(8, "YlGn"))(64),
+        # cm.colors(64),
+        zlim = c(min(min.fort.sd), max(max.fort.sd)),
+        ylab = '', xlab='', yaxt="n", xaxt="n", cex.main=2.5)
+  map(database = 'state', add = TRUE, col = 'black')
+  if(i == subset[1]){
+    mtext("(b)",side=3,line=-1.9,adj=c(0.1),cex=2,col="black")
+  }
+  points(prism.points[H.list[[i]], ], pch = 16, col = 'black', cex = 1.5)
+}
+
+for(i in subset[3:4]){
+  if (i == subset[3]) {
+    image(fort.raster.tmp[[i]], main = paste(i + 1819), #col = topo.colors(64),
+          col=rev(colorRampPalette(brewer.pal(8, "RdBu"))(64)),
+          zlim = c(min(min.fort), max(max.fort)), ylab = '', xlab='',
+          cex.main=2.5)
+    mtext("latitude", 2, line=2)
+    mtext("longitude", 1, line=2.25)
+  } else {
+    image(fort.raster.tmp[[i]], main = paste(i + 1819), #col = topo.colors(64),
+          col=rev(colorRampPalette(brewer.pal(8, "RdBu"))(64)),
+          zlim = c(min(min.fort), max(max.fort)), ylab = '', xlab='', yaxt="n",
+          cex.main=2.5)
+  }
+
+  map(database = 'state', add = TRUE, col = 'black')
+  points(prism.points[H.list[[i]], ], pch = 16, col = 'black', cex = 1.5)
+}
+
+for(i in subset[3:4]){
+  image(fort.raster.sd[[i]], main = paste(i + 1819),
+        col=colorRampPalette(brewer.pal(8, "YlGn"))(64),
+        # cm.colors(64),
+        zlim = c(min(min.fort.sd), max(max.fort.sd)),
+        ylab = '', xlab='', yaxt="n", cex.main=2.5)
+  mtext("longitude", 1, line=2.25)
+  map(database = 'state', add = TRUE, col = 'black')
+  points(prism.points[H.list[[i]], ], pch = 16, col = 'black', cex = 1.5)
+}
+image.scale(fort.raster.tmp[[i]], #col = topo.colors(64),
+            col=rev(colorRampPalette(brewer.pal(8, "RdBu"))(64)),
+            zlim = c(min(min.fort), max(max.fort)), horiz=FALSE)
+image.scale(fort.raster.sd[[i]], col=colorRampPalette(brewer.pal(8, "YlGn"))(64),
+            # cm.colors(64),
+            zlim = c(min(min.fort.sd), max(max.fort.sd)), horiz=FALSE)
+```
+
+\begin{figure}
+\centering\includegraphics[width=0.95\linewidth]{observer-sensitivity_files/figure-latex/fortPlotstPCA-1.pdf}
+\caption{Reconstruction of temperature using robust PCR model for four representative years. Figures show posterior predictive mean (a) and standard deviation (b).}
+\label{fig:tPCRFort}
+\end{figure}
+
+```{r fortPlotstpPCA, echo=TRUE, eval=TRUE, include=FALSE, fig.height=6, fig.width=12, eval=TRUE}
+fort.raster.tmp <- fort.raster
+fort.raster.sd <- fort.raster
+min.fort <- rep(NA, 4)
+max.fort <- rep(NA, 4)
+min.fort.sd <- rep(NA, 4)
+max.fort.sd <- rep(NA, 4)
+
+subset <- c(12, 28, 56, 71)
+for(ii in 1:4){
+  i <- subset[ii]
+  values(fort.raster.tmp[[i]])[ - na.rows] <- y_tilde_mean_tppca_lasso_outlier[, i]
+  values(fort.raster.sd[[i]])[ - na.rows] <- y_tilde_sd_tppca_lasso_outlier[, i]
+  min.fort[ii] <- min(y_tilde_mean_tpca_lasso_outlier[, i],
+                      y_tilde_mean_tppca_lasso_outlier[, i])
+  max.fort[ii] <- max(y_tilde_mean_tpca_lasso_outlier[, i],
+                      y_tilde_mean_tppca_lasso_outlier[, i])
+  min.fort.sd[ii] <- min(y_tilde_sd_tpca_lasso_outlier[, i],
+                         y_tilde_sd_tppca_lasso_outlier[, i])
+  max.fort.sd[ii] <- max(y_tilde_sd_tpca_lasso_outlier[, i],
+                         y_tilde_sd_tppca_lasso_outlier[, i])
+}
+
+
+layout(matrix(c(1, 1, 1, 2, 2, 2, 9, 3, 3, 3, 4, 4, 4, 10,
+                1, 1, 1, 2, 2, 2, 9, 3, 3, 3, 4, 4, 4, 10,
+                1, 1, 1, 2, 2, 2, 9, 3, 3, 3, 4, 4, 4, 10,
+                5, 5, 5, 6, 6, 6, 9, 7, 7, 7, 8, 8, 8, 10,
+                5, 5, 5, 6, 6, 6, 9, 7, 7, 7, 8, 8, 8, 10,
+                5, 5, 5, 6, 6, 6, 9, 7, 7, 7, 8, 8, 8, 10), 6, 14, byrow=TRUE))
+par(mar=c(3.5, 3.25, 1.75, 0.5) + 0.1, oma=c(0, 0, 0.25, 0.25) + 0.1)
+
+for(i in subset[1:2]){
+  if (i == subset[1]) {
+    image(fort.raster.tmp[[i]], main = paste(i + 1819), #col = topo.colors(64),
+          col=rev(colorRampPalette(brewer.pal(8, "RdBu"))(64)),
+          zlim = c(min(min.fort), max(max.fort)), ylab = '', xlab='',
+          yaxt="n", xaxt="n", cex.main=2.5)
+    mtext("latitude", 2, line=2)
+  } else {
+    image(fort.raster.tmp[[i]], main = paste(i + 1819), #col = topo.colors(64),
+          col=rev(colorRampPalette(brewer.pal(8, "RdBu"))(64)),
+          zlim = c(min(min.fort), max(max.fort)), ylab = '', xlab='',
+          yaxt="n", xaxt="n", cex.main=2.5)
+  }
+  if(i == subset[1]){
+    mtext("(a)",side=3,line=-1.9,adj=c(0.1),cex=2,col="black")
+  }
+  map(database = 'state', add = TRUE, col = 'black')
+  points(prism.points[H.list[[i]], ], pch = 16, col = 'black', cex = 1.5)
+}
+
+for(i in subset[1:2]){
+  image(fort.raster.sd[[i]], main = paste(i + 1819), #col = cm.colors(64),
+        col=colorRampPalette(brewer.pal(8, "YlGn"))(64),
+        zlim = c(min(min.fort.sd), max(max.fort.sd)),
+        ylab = '', xlab='', yaxt="n", xaxt="n", cex.main=2.5)
+  map(database = 'state', add = TRUE, col = 'black')
+  if(i == subset[1]){
+    mtext("(b)",side=3,line=-1.9,adj=c(0.1),cex=2,col="black")
+  }
+  points(prism.points[H.list[[i]], ], pch = 16, col = 'black', cex = 1.5)
+}
+
+for(i in subset[3:4]){
+  if (i == subset[3]) {
+    image(fort.raster.tmp[[i]], main = paste(i + 1819), #col = topo.colors(64),
+          col=rev(colorRampPalette(brewer.pal(8, "RdBu"))(64)),
+          zlim = c(min(min.fort), max(max.fort)), ylab = '', xlab='',
+          cex.main=2.5)
+    mtext("latitude", 2, line=2)
+    mtext("longitude", 1, line=2.25)
+  } else {
+    image(fort.raster.tmp[[i]], main = paste(i + 1819), #col = topo.colors(64),
+          col=rev(colorRampPalette(brewer.pal(8, "RdBu"))(64)),
+          zlim = c(min(min.fort), max(max.fort)), ylab = '', xlab='', yaxt="n",
+          cex.main=2.5)
+    mtext("longitude", 1, line=2.25)
+  }
+  map(database = 'state', add = TRUE, col = 'black')
+  points(prism.points[H.list[[i]], ], pch = 16, col = 'black', cex = 1.5)
+}
+
+for(i in subset[3:4]){
+  image(fort.raster.sd[[i]], main = paste(i + 1819), #col = cm.colors(64),
+        col=colorRampPalette(brewer.pal(8, "YlGn"))(64),
+        zlim = c(min(min.fort.sd), max(max.fort.sd)),
+        ylab = '', xlab='', yaxt="n", cex.main=2.5)
+  mtext("longitude", 1, line=2.25)
+  map(database = 'state', add = TRUE, col = 'black')
+  points(prism.points[H.list[[i]], ], pch = 16, col = 'black', cex = 1.5)
+}
+image.scale(fort.raster.tmp[[i]], #col = topo.colors(64),
+            col=rev(colorRampPalette(brewer.pal(8, "RdBu"))(64)),
+            zlim = c(min(min.fort), max(max.fort)), horiz=FALSE)
+image.scale(fort.raster.sd[[i]], #col = cm.colors(64),
+            col=colorRampPalette(brewer.pal(8, "YlGn"))(64),
+            zlim = c(min(min.fort.sd), max(max.fort.sd)), horiz=FALSE)
+```
+
+\begin{figure}
+\centering\includegraphics[width=0.95\linewidth]{observer-sensitivity_files/figure-latex/fortPlotstPCA-1.pdf}
+\caption{Reconstruction of temperature using robust probabilistic PCR model for four representative years. Figures show posterior predictive mean (a) and standard deviation (b).}
+\label{fig:tpPCRFort}
+\end{figure}
+
+## Plot difference in reconstructed surfaces
+
+```{r fortPlotsDiff, echo=TRUE, eval=TRUE, include=FALSE, fig.height=6, fig.width=12, eval=TRUE}
+library(RColorBrewer)
+fort.raster.tmp <- fort.raster
+fort.raster.sd <- fort.raster
+min.fort <- rep(NA, 4)
+max.fort <- rep(NA, 4)
+min.fort.sd <- rep(NA, 4)
+max.fort.sd <- rep(NA, 4)
+
+subset <- c(12, 28, 56, 71)
+for(ii in 1:4){
+  i <- subset[ii]
+  values(fort.raster.tmp[[i]])[ - na.rows] <- y_tilde_mean_tpca_lasso_outlier[, i] -
+    y_tilde_mean_tppca_lasso_outlier[, i]
+  values(fort.raster.sd[[i]])[ - na.rows] <- y_tilde_sd_tpca_lasso_outlier[, i] -
+    y_tilde_sd_tppca_lasso_outlier[, i]
+  min.fort[ii] <- min(y_tilde_mean_tpca_lasso_outlier[, i] -
+                        y_tilde_mean_tppca_lasso_outlier[, i])
+  max.fort[ii] <- max(y_tilde_mean_tpca_lasso_outlier[, i] -
+                        y_tilde_mean_tppca_lasso_outlier[, i])
+  min.fort.sd[ii] <- min(y_tilde_sd_tpca_lasso_outlier[, i] -
+                           y_tilde_sd_tppca_lasso_outlier[, i])
+  max.fort.sd[ii] <- max(y_tilde_sd_tpca_lasso_outlier[, i] -
+                           y_tilde_sd_tppca_lasso_outlier[, i])
+}
+
+
+layout(matrix(c(1, 1, 1, 2, 2, 2, 9, 3, 3, 3, 4, 4, 4, 10,
+                1, 1, 1, 2, 2, 2, 9, 3, 3, 3, 4, 4, 4, 10,
+                1, 1, 1, 2, 2, 2, 9, 3, 3, 3, 4, 4, 4, 10,
+                5, 5, 5, 6, 6, 6, 9, 7, 7, 7, 8, 8, 8, 10,
+                5, 5, 5, 6, 6, 6, 9, 7, 7, 7, 8, 8, 8, 10,
+                5, 5, 5, 6, 6, 6, 9, 7, 7, 7, 8, 8, 8, 10), 6, 14, byrow=TRUE))
+par(mar=c(3.5, 3.25, 1.75, 0.5) + 0.1, oma=c(0, 0, 0.25, 0.25) + 0.1)
+
+for(i in subset[1:2]){
+  if (i == subset[1]) {
+    image(fort.raster.tmp[[i]], main = paste(i + 1819), #col = topo.colors(64),
+          col=rev(colorRampPalette(brewer.pal(8, "RdBu"))(64)),
+          zlim = c(- max(abs(min.fort), abs(max.fort)), max(abs(min.fort), abs(max.fort))),
+          ylab = '', xlab='', xaxt="n", cex.main=2.5)
+    mtext("latitude", 2, line=2)
+  } else {
+    image(fort.raster.tmp[[i]], main = paste(i + 1819), #col = topo.colors(64),
+          col=rev(colorRampPalette(brewer.pal(8, "RdBu"))(64)),
+          zlim = c(- max(abs(min.fort), abs(max.fort)), max(abs(min.fort), abs(max.fort))),
+          ylab = '', xlab='', yaxt="n", xaxt="n", cex.main=2.5)
+  }
+  if(i == subset[1]){
+    mtext("(a)",side=3,line=-1.9,adj=c(0.1),cex=2,col="black")
+  }
+  map(database = 'state', add = TRUE, col = 'black')
+  points(prism.points[H.list[[i]], ], pch = 16, col = 'black', cex = 1.5)
+}
+
+for(i in subset[1:2]){
+  image(fort.raster.sd[[i]], main = paste(i + 1819),
+        col=colorRampPalette(brewer.pal(8, "PuOr"))(64),
+        # cm.colors(64),
+        zlim = c(- max(abs(min.fort), abs(max.fort)), max(abs(min.fort), abs(max.fort))),
+        ylab = '', xlab='', yaxt="n", xaxt="n", cex.main=2.5)
+  map(database = 'state', add = TRUE, col = 'black')
+  if(i == subset[1]){
+    mtext("(b)",side=3,line=-1.9,adj=c(0.1),cex=2,col="black")
+  }
+  points(prism.points[H.list[[i]], ], pch = 16, col = 'black', cex = 1.5)
+}
+
+for(i in subset[3:4]){
+  if (i == subset[3]) {
+    image(fort.raster.tmp[[i]], main = paste(i + 1819), #col = topo.colors(64),
+          col=rev(colorRampPalette(brewer.pal(8, "RdBu"))(64)),
+          zlim = c(- max(abs(min.fort), abs(max.fort)), max(abs(min.fort), abs(max.fort))),
+          ylab = '', xlab='', cex.main=2.5)
+    mtext("latitude", 2, line=2)
+    mtext("longitude", 1, line=2.25)
+  } else {
+    image(fort.raster.tmp[[i]], main = paste(i + 1819), #col = topo.colors(64),
+          col=rev(colorRampPalette(brewer.pal(8, "RdBu"))(64)),
+          zlim = c(- max(abs(min.fort), abs(max.fort)), max(abs(min.fort), abs(max.fort))),
+          ylab = '', xlab='', yaxt="n", cex.main=2.5)
+  }
+
+  map(database = 'state', add = TRUE, col = 'black')
+  points(prism.points[H.list[[i]], ], pch = 16, col = 'black', cex = 1.5)
+}
+
+for(i in subset[3:4]){
+  image(fort.raster.sd[[i]], main = paste(i + 1819),
+        col=colorRampPalette(brewer.pal(8, "PuOr"))(64),
+        # cm.colors(64),
+        zlim = c(- max(abs(min.fort), abs(max.fort)), max(abs(min.fort), abs(max.fort))),
+        ylab = '', xlab='', yaxt="n", cex.main=2.5)
+  mtext("longitude", 1, line=2.25)
+  map(database = 'state', add = TRUE, col = 'black')
+  points(prism.points[H.list[[i]], ], pch = 16, col = 'black', cex = 1.5)
+}
+image.scale(fort.raster.tmp[[i]], #col = topo.colors(64),
+            col=rev(colorRampPalette(brewer.pal(8, "RdBu"))(64)),
+            zlim = c(- max(abs(min.fort), abs(max.fort)), max(abs(min.fort), abs(max.fort))),
+            horiz=FALSE)
+image.scale(fort.raster.sd[[i]], col=colorRampPalette(brewer.pal(8, "PuOr"))(64),
+            # cm.colors(64),
+            zlim = c(- max(abs(min.fort), abs(max.fort)), max(abs(min.fort), abs(max.fort))),
+            horiz=FALSE)
+```
+
+\begin{figure}
+\centering\includegraphics[width=0.95\linewidth]{observer-sensitivity_files/figure-latex/fortPlotsDiff-1.pdf}
+\caption{Difference in reconstruction of temperature using robust PCR minus robust probabilistic PCR model for four representative years. Figures show posterior predictive difference in mean (a) and difference in standard deviation (b).}
+\label{fig:tpPCRFort}
+\end{figure}
+
+## Plot time series reconstructions at four arbitrary locations
+
+```{r TimeSeries, echo=TRUE, eval=TRUE, include=FALSE, fig.height=6, fig.width=12, eval=TRUE}
+library(RColorBrewer)
+fort.raster.tmp <- fort.raster
+fort.raster.sd <- fort.raster
+madison_longlat <- c(-89.41012, 43.0731)
+minneapolis_longlat <- c(-93.2650, 44.9778)
+detroit_longlat <- c(-83.0458, 42.3314)
+champaign_longlat <- c(-88.2073, 40.1106)
+
+
+madison_idx <- which(pointDistance(prism.points, madison_longlat, lonlat=TRUE) ==
+                       min(pointDistance(prism.points, madison_longlat, lonlat=TRUE)))
+minneapolis_idx <- which(pointDistance(prism.points, minneapolis_longlat, lonlat=TRUE) ==
+                           min(pointDistance(prism.points, minneapolis_longlat, lonlat=TRUE)))
+detroit_idx <- which(pointDistance(prism.points, detroit_longlat, lonlat=TRUE) ==
+                       min(pointDistance(prism.points, detroit_longlat, lonlat=TRUE)))
+champaign_idx <- which(pointDistance(prism.points, champaign_longlat, lonlat=TRUE) ==
+                         min(pointDistance(prism.points, champaign_longlat, lonlat=TRUE)))
+
+madison_temp <- matrix(0, 75 + 116, 2)
+minneapolis_temp <- matrix(0, 75 + 116, 2)
+detroit_temp <- matrix(0, 75 + 116, 2)
+champaign_temp <- matrix(0, 75 + 116, 2)
+madison_temp_sd <- matrix(0, 75 + 116, 2)
+minneapolis_temp_sd <- matrix(0, 75 + 116, 2)
+detroit_temp_sd <- matrix(0, 75 + 116, 2)
+champaign_temp_sd <- matrix(0, 75 + 116, 2)
+
+for (i in 1:(75 + 116)) {
+  if (i <= 75) {
+    madison_temp[i, ] <- c(y_tilde_mean_tpca_lasso_outlier[madison_idx, i],
+                           y_tilde_mean_tppca_lasso_outlier[madison_idx, i])
+    minneapolis_temp[i, ] <- c(y_tilde_mean_tpca_lasso_outlier[minneapolis_idx, i],
+                               y_tilde_mean_tppca_lasso_outlier[minneapolis_idx, i])
+    detroit_temp[i, ] <- c(y_tilde_mean_tpca_lasso_outlier[detroit_idx, i],
+                           y_tilde_mean_tppca_lasso_outlier[detroit_idx, i])
+    champaign_temp[i, ] <- c(y_tilde_mean_tpca_lasso_outlier[champaign_idx, i],
+                             y_tilde_mean_tppca_lasso_outlier[champaign_idx, i])
+    madison_temp_sd[i, ] <- c(y_tilde_sd_tpca_lasso_outlier[madison_idx, i],
+                              y_tilde_sd_tppca_lasso_outlier[madison_idx, i])
+    minneapolis_temp_sd[i, ] <- c(y_tilde_sd_tpca_lasso_outlier[minneapolis_idx, i],
+                                  y_tilde_sd_tppca_lasso_outlier[minneapolis_idx, i])
+    detroit_temp_sd[i, ] <- c(y_tilde_sd_tpca_lasso_outlier[detroit_idx, i],
+                              y_tilde_sd_tppca_lasso_outlier[detroit_idx, i])
+    champaign_temp_sd[i, ] <- c(y_tilde_sd_tpca_lasso_outlier[champaign_idx, i],
+                                y_tilde_sd_tppca_lasso_outlier[champaign_idx, i])
+  } else {
+    ii <- i - 75
+    madison_temp[i, ] <- X.farenheit[madison_idx, ii]
+    minneapolis_temp[i, ] <- X.farenheit[madison_idx, ii]
+    detroit_temp[i, ] <- X.farenheit[madison_idx, ii]
+    champaign_temp[i, ] <- X.farenheit[madison_idx, ii]
+  }
+}
+
+## adjust temp from 8:30AM to temperatures over a one minute grid choosing
+## (T_min+T_max)/2 resulting in constant mean shift of 3.027014
+
+madison_temp_adjusted <- madison_temp
+minneapolis_temp_adjusted <- minneapolis_temp
+detroit_temp_adjusted <- detroit_temp
+champaign_temp_adjusted <- champaign_temp
+madison_temp_adjusted[1:75, ] <- madison_temp_adjusted[1:75, ]+3.027014
+minneapolis_temp_adjusted[1:75, ] <- minneapolis_temp_adjusted[1:75, ]+3.027014
+detroit_temp_adjusted[1:75, ] <- detroit_temp_adjusted[1:75, ]+3.027014
+champaign_temp_adjusted[1:75, ] <- champaign_temp_adjusted[1:75, ]+3.027014
+
+require(ggplot2)
+time.dat <- data.frame(Temperature = c(madison_temp_adjusted[1:75, ],
+                                       minneapolis_temp_adjusted[1:75, ],
+                                       detroit_temp_adjusted[1:75, ],
+                                       champaign_temp_adjusted[1:75, ]),
+                       temp_min = c(madison_temp_adjusted[1:75, ] -
+                                      2*madison_temp_sd[1:75, ],
+                                    minneapolis_temp_adjusted[1:75, ] -
+                                      2*minneapolis_temp_sd[1:75, ],
+                                    detroit_temp_adjusted[1:75, ] -
+                                      2*detroit_temp_sd[1:75, ],
+                                    champaign_temp_adjusted[1:75, ] -
+                                      2*champaign_temp_sd[1:75, ]),
+                       temp_max = c(madison_temp_adjusted[1:75, ] +
+                                      2*madison_temp_sd[1:75, ],
+                                    minneapolis_temp_adjusted[1:75, ] +
+                                      2*minneapolis_temp_sd[1:75, ],
+                                    detroit_temp_adjusted[1:75, ] +
+                                      2*detroit_temp_sd[1:75, ],
+                                    champaign_temp_adjusted[1:75, ] +
+                                      2*champaign_temp_sd[1:75, ]),
+                       sd = c(madison_temp_sd[1:75, ], minneapolis_temp_sd[1:75, ],
+                              detroit_temp_sd[1:75, ], champaign_temp_sd[1:75, ]),
+                       location = c(rep("Madison", 150), rep("Minneapolis", 150),
+                                    rep("Detroit", 150), rep("Champaign", 150)),
+                       model = rep(c(rep("tPCA LASSO", 75), rep("tpPCA LASSO", 75)), times=4),
+                       Year = rep(1820:1894, 8))
+# time.dat <- data.frame(Temperature = c(madison_temp[1:75, ], minneapolis_temp[1:75, ],
+#                                        detroit_temp[1:75, ], champaign_temp[1:75, ]),
+#                        temp_min = c(madison_temp[1:75, ]-2*madison_temp_sd[1:75, ],
+#                                     minneapolis_temp[1:75, ]-2*minneapolis_temp_sd[1:75, ],
+#                                     detroit_temp[1:75, ]-2*detroit_temp_sd[1:75, ],
+#                                     champaign_temp[1:75, ]-2*champaign_temp_sd[1:75, ]),
+#                        temp_max = c(madison_temp[1:75, ]+2*madison_temp_sd[1:75, ],
+#                                     minneapolis_temp[1:75, ]+2*minneapolis_temp_sd[1:75, ],
+#                                     detroit_temp[1:75, ]+2*detroit_temp_sd[1:75, ],
+#                                     champaign_temp[1:75, ]+2*champaign_temp_sd[1:75, ]),
+#                        sd = c(madison_temp_sd[1:75, ], minneapolis_temp_sd[1:75, ],
+#                               detroit_temp_sd[1:75, ], champaign_temp_sd[1:75, ]),
+#                        location = c(rep("Madison", 150), rep("Minneapolis", 150),
+#                                     rep("Detroit", 150), rep("Champaign", 150)),
+#                        model = rep(c(rep("tPCA LASSO", 75), rep("tpPCA LASSO", 75)), times=4),
+#                        Year = rep(1820:1894, 8))
+
+ts1 <- ggplot(time.dat, aes(x=Year, y=Temperature, group=model, color=model)) +
+  geom_line(size=1.25, alpha=0.8) + facet_grid(location ~ .) +
+  #scale_fill_brewer(palette="RdBu") +
+  geom_ribbon(aes(ymin=temp_min, ymax=temp_max, fill=model), alpha=0.3) +
+  theme(text=element_text(size=10)) #+
+# geom_vline(xintercept=1846) + geom_vline(xintercept=1848)s
+library(gridExtra)
+# grid.arrange(ts1, top=textGrob("(a)"))
+ts1
+
+
+library(cowplot)
+obs.dat <- data.frame(Year=1820:1894, N=nobs_outlier)
+ts2 <- ggplot(obs.dat, aes(x=Year, y=N)) + geom_bar(stat="identity") +
+  labs(y=expression(m[t])) + theme(text=element_text(size=10)) +
+  scale_y_continuous(breaks=c(50, 150, 250)) #+
+# geom_vline(xintercept=1846) +
+# geom_vline(xintercept=1848)
+# grid.arrange(ts2, top=textGrob("(b)"))
+ts2
+# ggdraw() +
+#   draw_plot(ts1, 0.01, 0.2, 1, .8) +
+#   draw_plot(ts2, 0, 0, 0.85, 0.2)
+ggdraw() +
+  draw_plot(grid.arrange(ts1, top=textGrob("(a)")), 0.01, 0.2, 1, .8) +
+  draw_plot(grid.arrange(ts2, top=textGrob("(b)")), 0, 0, 0.85, 0.2)
+# plot_grid(ts1, ts2, ncol=1, align="h")
+
+
+library(ggplot2)
+library(grid)
+library(gridExtra)
+library(gtable)
+
+gtable_frame <- function(g, width=unit(1,"null"), height=unit(1,"null")){
+  panels <- g[["layout"]][grepl("panel", g[["layout"]][["name"]]), ]
+  ll <- unique(panels$l)
+  tt <- unique(panels$t)
+
+  fixed_ar <- g$respect
+  if(fixed_ar) { # there lies madness, want to align despite aspect ratio constraints
+    ar <- as.numeric(g$heights[tt[1]]) / as.numeric(g$widths[ll[1]])
+    height <- width * ar
+    g$respect <- FALSE
+  }
+
+  core <- g[seq(min(tt), max(tt)), seq(min(ll), max(ll))]
+  top <- g[seq(1, min(tt)-1), ]
+  bottom <- g[seq(max(tt)+1, nrow(g)), ]
+  left <- g[, seq(1, min(ll)-1)]
+  right <- g[, seq(max(ll)+1, ncol(g))]
+
+  fg <- nullGrob()
+  lg <-  if(length(left))  g[seq(min(tt), max(tt)), seq(1, min(ll)-1)] else fg
+  rg <- if(length(right)) g[seq(min(tt), max(tt)), seq(max(ll)+1,ncol(g))] else fg
+  grobs = list(fg, g[seq(1, min(tt)-1), seq(min(ll), max(ll))], fg,
+               lg, g[seq(min(tt), max(tt)), seq(min(ll), max(ll))], rg,
+               fg, g[seq(max(tt)+1, nrow(g)), seq(min(ll), max(ll))], fg)
+  widths <- unit.c(sum(left$widths), width, sum(right$widths))
+  heights <- unit.c(sum(top$heights), height, sum(bottom$heights))
+  all <- gtable_matrix("all", grobs = matrix(grobs, ncol=3, nrow=3, byrow = TRUE),
+                       widths = widths, heights = heights)
+  all[["layout"]][5,"name"] <- "panel" # make sure knows where the panel is for nested calls
+  if(fixed_ar)  all$respect <- TRUE
+  all
+}
+
+
+p1 <- ggplotGrob(ts1)
+p2 <- ggplotGrob(ts2)
+fp1 <- gtable_frame(p1, height=unit(4, "null"))
+fp2 <- gtable_frame(p2)
+grid.newpage()
+grid.draw(rbind(fp1, fp2))
+
+
+layout(matrix(1:4, 2, 2))
+matplot(madison_temp[1:75, ], type='l', lty=1)
+for(i in 1:2) {
+  lines(madison_temp[1:75, i] + 2*madison_temp_sd[1:75, i], type= 'l', lty=2, col=i)
+  lines(madison_temp[1:75, i] - 2*madison_temp_sd[1:75, i], type= 'l', lty=2, col=i)
+}
+# abline(v=76)
+matplot(minneapolis_temp[1:75, ], type='l', lty=1)
+for(i in 1:2) {
+  lines(minneapolis_temp[1:75, i] + 2*minneapolis_temp_sd[1:75, i], type= 'l', lty=2, col=i)
+  lines(minneapolis_temp[1:75, i] - 2*minneapolis_temp_sd[1:75, i], type= 'l', lty=2, col=i)
+}
+# abline(v=76)
+matplot(detroit_temp[1:75, ], type='l', lty=1)
+for(i in 1:2) {
+  lines(detroit_temp[1:75, i] + 2*detroit_temp_sd[1:75, i], type= 'l', lty=2, col=i)
+  lines(detroit_temp[1:75, i] - 2*detroit_temp_sd[1:75, i], type= 'l', lty=2, col=i)
+}
+# abline(v=76)
+matplot(champaign_temp[1:75, ], type='l', lty=1)
+for(i in 1:2) {
+  lines(champaign_temp[1:75, i] + 2*champaign_temp_sd[1:75, i], type= 'l', lty=2, col=i)
+  lines(champaign_temp[1:75, i] - 2*champaign_temp_sd[1:75, i], type= 'l', lty=2, col=i)
+}
+# abline(v=76)
+
+
+layout(matrix(1:4, 2, 2))
+matplot(madison_temp, type='l', lty=1)
+abline(v=76)
+matplot(minneapolis_temp, type='l', lty=1)
+abline(v=76)
+matplot(detroit_temp, type='l', lty=1)
+abline(v=76)
+matplot(champaign_temp, type='l', lty=1)
+abline(v=76)
+
+
+layout(matrix(1:4, 2, 2))
+matplot(madison_temp_adjusted, type='l', lty=1)
+abline(v=76)
+matplot(minneapolis_temp_adjusted, type='l', lty=1)
+abline(v=76)
+matplot(detroit_temp_adjusted, type='l', lty=1)
+abline(v=76)
+matplot(champaign_temp_adjusted, type='l', lty=1)
+abline(v=76)
+
+```
+
+\begin{figure}
+\centering\includegraphics[width=0.95\linewidth]{observer-sensitivity_files/figure-latex/TimeSeries-5.pdf}
+\caption{Posterior predictions of mean July temperature with associated 95\% credible intervals at Champaign, Illinois, Detriot, Michigan, Madison, Wisconsin, and Minneapolis, Minnesota (a). The temporal change in the number of observations is shown in (b). Notice that the uncertainties in the point reconstructions are smallest in years with larger samples and largest in years with few samples. In general, the robust pPCR credible intervals are larger than the robust PCR credible intervals.}
+\label{fig:time}
+\end{figure}
+
+
+## Full time series of plots in appendix
+
+```{r fortPlotstPCAFull, echo=FALSE, include=TRUE, fig.height=6, fig.width=6, fig.keep='all', fig.show='hide', cache=TRUE, eval=TRUE}
+fort.raster.tmp <- fort.raster
+fort.raster.sd <- fort.raster
+min.fort <- rep(NA, t)
+max.fort <- rep(NA, t)
+min.fort.sd <- rep(NA, t)
+max.fort.sd <- rep(NA, t)
+
+for(i in 1:t){
+  values(fort.raster.tmp[[i]])[ - na.rows] <- y_tilde_mean_tpca_lasso_outlier[, i]
+  values(fort.raster.sd[[i]])[ - na.rows] <- y_tilde_sd_tpca_lasso_outlier[, i]
+  min.fort[i] <- min(y_tilde_mean_tpca_lasso_outlier,
+                     y_tilde_mean_tppca_lasso_outlier)
+  max.fort[i] <- max(y_tilde_mean_tpca_lasso_outlier,
+                     y_tilde_mean_tppca_lasso_outlier)
+  min.fort.sd[i] <- min(y_tilde_sd_tpca_lasso_outlier,
+                        y_tilde_sd_tppca_lasso_outlier)
+  max.fort.sd[i] <- max(y_tilde_sd_tpca_lasso_outlier,
+                        y_tilde_sd_tppca_lasso_outlier)
+}
+
+par(mfrow=c(4, 4), mar=c(3, 3, 1.75, 1.5) + 0.1, oma=c(0, 0, 0.25, 0.5) + 0.1, mgp=c(2, 1, 0))
+# par(mfrow=c(4, 4), mar=c(3, 3, 1, 1) + 0.1, oma=c(0, 0, 0, 0) + 0.1, mgp=c(2, 1, 0))
+for(i in 1:t) {
+  image.plot(fort.raster.tmp[[i]], main = paste(i + 1819),
+             col=rev(colorRampPalette(brewer.pal(8, "RdBu"))(64)),
+             zlim = c(min(min.fort), max(max.fort)),
+             ylab = 'latitude', xlab='longitude', cex.main=1.5)
+  map(database = 'state', add = TRUE, col = 'black')
+  points(prism.points[H.list[[i]], ], pch = 16, cex = 1)
+}
+
+par(mfrow=c(4, 4), mar=c(3, 3, 1.75, 1.5) + 0.1, oma=c(0, 0, 0.25, 0.5) + 0.1, mgp=c(2, 1, 0))
+# par(mfrow=c(4, 4), mar=c(3, 3, 1, 1) + 0.1, oma=c(0, 0, 0, 0) + 0.1, mgp=c(2, 1, 0))
+for(i in 1:t){
+  image.plot(fort.raster.sd[[i]], main = paste(i + 1819), #col = cm.colors(64),
+             col=colorRampPalette(brewer.pal(8, "YlGn"))(64),
+             zlim = c(min(min.fort.sd), max(max.fort.sd)),
+             ylab = 'latitude', xlab='longitude', cex.main=1.5)
+  map(database = 'state', add = TRUE, col = 'black')
+  points(prism.points[H.list[[i]], ], pch = 16, cex = 1, col = 'black')
+}
+```
+
+```{r fortPlotstpPCAFull, echo=FALSE, include=TRUE, fig.height=6, fig.width=6, fig.keep='all', fig.show='hide', cache=TRUE, eval=TRUE}
+fort.raster.tmp <- fort.raster
+fort.raster.sd <- fort.raster
+min.fort <- rep(NA, t)
+max.fort <- rep(NA, t)
+min.fort.sd <- rep(NA, t)
+max.fort.sd <- rep(NA, t)
+
+for(i in 1:t){
+  values(fort.raster.tmp[[i]])[ - na.rows] <- y_tilde_mean_tpca_lasso_outlier[, i]
+  values(fort.raster.sd[[i]])[ - na.rows] <- y_tilde_sd_tpca_lasso_outlier[, i]
+  min.fort[i] <- min(y_tilde_mean_tpca_lasso_outlier,
+                     y_tilde_mean_tppca_lasso_outlier)
+  max.fort[i] <- max(y_tilde_mean_tpca_lasso_outlier,
+                     y_tilde_mean_tppca_lasso_outlier)
+  min.fort.sd[i] <- min(y_tilde_sd_tpca_lasso_outlier,
+                        y_tilde_sd_tppca_lasso_outlier)
+  max.fort.sd[i] <- max(y_tilde_sd_tpca_lasso_outlier,
+                        y_tilde_sd_tppca_lasso_outlier)
+}
+par(mfrow=c(4, 4), mar=c(3, 3, 1.75, 1.5) + 0.1, oma=c(0, 0, 0.25, 0.5) + 0.1, mgp=c(2, 1, 0))
+# par(mfrow=c(4, 4), mar=c(3, 3, 1, 1) + 0.1, oma=c(0, 0, 0, 0) + 0.1, mgp=c(2, 1, 0))
+for(i in 1:t) {
+  image.plot(fort.raster.tmp[[i]], main = paste(i + 1819), #col = topo.colors(64),
+             col=rev(colorRampPalette(brewer.pal(8, "RdBu"))(64)),
+             zlim = c(min(min.fort), max(max.fort)),
+             ylab = 'latitude', xlab='longitude', cex.main=1.5)
+  map(database = 'state', add = TRUE, col = 'black')
+  points(prism.points[H.list[[i]], ], pch = 16, cex = 1)
+}
+
+par(mfrow=c(4, 4), mar=c(3, 3, 1.75, 1.5) + 0.1, oma=c(0, 0, 0.25, 0.5) + 0.1, mgp=c(2, 1, 0))
+for(i in 1:t){
+  image.plot(fort.raster.sd[[i]], main = paste(i + 1819), #col = cm.colors(64),
+             col=colorRampPalette(brewer.pal(8, "YlGn"))(64),
+             zlim = c(min(min.fort.sd), max(max.fort.sd)),
+             ylab = 'latitude', xlab='longitude', cex.main=1.5)
+  map(database = 'state', add = TRUE, col = 'black')
+  points(prism.points[H.list[[i]], ], pch = 16, cex = 1, col = 'black')
+}
+```
 
