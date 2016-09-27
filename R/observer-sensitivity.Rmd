@@ -138,7 +138,7 @@ phi <- 0.25
 s2_hist <- 1.5
 s2_obs <- 0.75
 nu <- 10
-samp_size <- 50:200#3:60
+samp_size <- 3:60
 
 field <- makeSpatialFieldT(reps, W, beta, locs, c(s2_s, phi, nu), 
                            method = 'exponential', s2_hist, s2_obs, samp_size)
@@ -241,12 +241,14 @@ mtext("(b)",side=3,line=-1.9,adj=c(0.1),cex=1,col="black")
 
 noisy_plot <- makePCA(matrix(unlist(Z_list_noisy), ncol = reps / 2, 
                              byrow = FALSE))$X_pca[, 1:4]
+noisy_plot[, 2] <- - noisy_plot[, 2]
 # noisy_plot[, 1] <- noisy_plot[, 1]
 
 # par(mar=c(1, 0.5, 0.5, 3) + 0.1)
-matplot(locs, -noisy_plot, type='l', las=2, xaxt='n',
+matplot(locs, - noisy_plot, type='l', las=2, xaxt='n',
         ylab="Principal Components",  xlab = "Location", 
-        main="", ylim =c(min(noisy_plot), max(noisy_plot)))
+        main="", ylim =c(min(noisy_plot), max(noisy_plot)), lty=1, 
+        col=adjustcolor(1:4, alpha.f=0.25))
 axis(1)
 mtext("(c)",side=3,line=-1.9,adj=c(0.1),cex=1,col="black")
 
@@ -254,8 +256,78 @@ mtext("(c)",side=3,line=-1.9,adj=c(0.1),cex=1,col="black")
 matplot(locs, makePCA(matrix(unlist(field$Z_list[(reps / 2 + 1):reps]), 
                              ncol = reps / 2, byrow = FALSE))$X_pca[, 1:4], 
         type='l', yaxt="n", ylab="", xlab="Location",
-        main = "", ylim =c(min(noisy_plot), max(noisy_plot)))
+        main = "", ylim =c(min(noisy_plot), max(noisy_plot)), lty=1, 
+        col=adjustcolor(1:4, alpha.f=0.6))
 mtext("(d)",side=3,line=-1.9,adj=c(0.1),cex=1,col="black")
+```
+
+```{r simPlot2, echo=FALSE, include=FALSE, fig.height=6, fig.width=12, eval=TRUE}
+library(RColorBrewer)
+c25 <- c("dodgerblue2","#E31A1C", # red
+         "green4",
+         "#6A3D9A", # purple
+         "#FF7F00", # orange
+         "black","gold1",
+         "skyblue2","#FB9A99", # lt pink
+         "palegreen2",
+         "#CAB2D6", # lt purple
+         "#FDBF6F", # lt orange
+         "gray70", "khaki2",
+         "maroon","orchid1","deeppink1","blue1","steelblue4",
+         "darkturquoise","green1","yellow4","yellow3",
+         "darkorange4","brown")
+# layout(matrix(1:4, 2, 2, byrow=TRUE))
+layout(matrix(1:2, 2, 1, byrow=TRUE))
+par(mar=c(4, 4, 0.5, 0.5) + 0.1, oma=c(0, 0, 0, 0) + 0.1)
+
+# par(mar=c(0.5, 0.5, 1.75, 0.5) + 0.1, oma=c(0, 0, 0.25, 2.5) + 0.1)
+matplot(locs, matrix(unlist(Z_list_noisy), m, reps/2), type='n',
+        col=adjustcolor("black", alpha.f=0.1),
+        ylim =c(min(unlist(Z_list_noisy)), max(unlist(Z_list_noisy))),
+        main = '', xlab="", xaxt="n", ylab="Simulated Temperature", las=2)
+# for(i in 1:(reps/2)) {
+for(i in 1:10) {
+  idx <- order(locs[H_list[[i]]])
+  matplot(locs[H_list[[i]]][idx], Z_list_noisy[[i]][H_list[[i]]][idx], type='p',
+          col=adjustcolor(c25[i], alpha.f=0.25), add=TRUE, pch=16)
+}
+
+mtext("(a)",side=3,line=-1.9,adj=c(0.1),cex=1,col="black")
+
+# par(mar=c(1, 0.5, 0.5, 3) + 0.1)
+matplot(locs, matrix(unlist(Z_list_pca), m, reps/2), type='n',
+        col=adjustcolor("black", alpha.f=0.5), main = '',
+        ylim =c(min(unlist(Z_list_noisy)), max(unlist(Z_list_noisy))),
+        xlab="", xaxt="n", yaxt="n", ylab="", add=TRUE)
+# for (i in 1:(reps/2)) {
+for (i in 1:10) {
+  matplot(locs, Z_list_pca[[i]], type='l', add=TRUE, lwd=2,
+          col=adjustcolor(c25[i], alpha.f=0.5),
+          xlab="", xaxt="n", yaxt="n", ylab="")
+}
+# mtext("(b)",side=3,line=-1.9,adj=c(0.1),cex=1,col="black")
+
+noisy_plot <- makePCA(matrix(unlist(Z_list_noisy), ncol = reps / 2, 
+                             byrow = FALSE))$X_pca[, 1:4]
+noisy_plot[, 2] <- - noisy_plot[, 2]
+# noisy_plot[, 1] <- noisy_plot[, 1]
+
+# par(mar=c(1, 0.5, 0.5, 3) + 0.1)
+matplot(locs, - noisy_plot, type='l', las=2, xaxt='n',
+        ylab="Principal Components",  xlab = "Location", 
+        main="", ylim =c(min(noisy_plot), max(noisy_plot)), lty=1, 
+        col=adjustcolor(1:4, alpha.f=0.25))
+axis(1)
+mtext("(b)",side=3,line=-1.9,adj=c(0.1),cex=1,col="black")
+# mtext("(c)",side=3,line=-1.9,adj=c(0.1),cex=1,col="black")
+
+# par(mar=c(1, 0.5, 0.5, 3) + 0.1)
+matplot(locs, makePCA(matrix(unlist(field$Z_list[(reps / 2 + 1):reps]), 
+                             ncol = reps / 2, byrow = FALSE))$X_pca[, 1:4], 
+        type='l', yaxt="n", ylab="", xlab="Location",
+        main = "", ylim =c(min(noisy_plot), max(noisy_plot)), lty=1, lwd=2,
+        col=adjustcolor(1:4, alpha.f=0.6), add=TRUE)
+# mtext("(d)",side=3,line=-1.9,adj=c(0.1),cex=1,col="black")
 ```
 
 \begin{figure}
@@ -789,12 +861,12 @@ if (file.exists("./sim-fit/pcassvs.RData")) {
   
   y_tilde_mean_pca_ssvs <- summaries$y_tilde_mean
   y_tilde_sd_pca_ssvs <- summaries$y_tilde_sd
-  # crps_pca_ssvs <- makeCRPS(summaries$y_tilde, Z_hist, n_samps / n_thin)
+  crps_pca_ssvs <- makeCRPS(summaries$y_tilde, Z_hist, n_samps / n_thin)
   loo_pca_ssvs <- loo(matrix(unlist(summaries$log_like), n_samps / n_thin, 
                              sum(nobs), byrow=FALSE))
   rm(samps, betas, s_invs, summaries)
   save(y_tilde_mean_pca_ssvs, y_tilde_sd_pca_ssvs, loo_pca_ssvs, 
-       file="./sim-fit/pcassvs.RData")
+       crps_pca_ssvs, file="./sim-fit/pcassvs.RData")
 }
 ```
 
@@ -845,12 +917,12 @@ summaries <- processPCASamples(t, p, n_samps, N, betas, s_invs,
 
 y_tilde_mean_pca_lasso <- summaries$y_tilde_mean 
 y_tilde_sd_pca_lasso <- summaries$y_tilde_sd
-# crps_pca_lasso <- makeCRPS(summaries$y_tilde, Z_hist, n_samps / n_thin)
+crps_pca_lasso <- makeCRPS(summaries$y_tilde, Z_hist, n_samps / n_thin)
 loo_pca_lasso <- loo(matrix(unlist(summaries$log_like), 
                             n_samps / n_thin, sum(nobs), byrow=FALSE))
 rm(samps, summaries, betas, s_invs)
   save(y_tilde_mean_pca_lasso, y_tilde_sd_pca_lasso, loo_pca_lasso, 
-       file="./sim-fit/pcalasso.RData")
+       crps_pca_lasso, file="./sim-fit/pcalasso.RData")
 }
 ```
 
@@ -908,11 +980,11 @@ summaries <- processPCASamplesT2(t, p, n_samps, N, betas, s_invs, nus,
 
 y_tilde_mean_tpca_ssvs <- summaries$y_tilde_mean 
 y_tilde_sd_tpca_ssvs <- summaries$y_tilde_sd
-# crps_tpca_ssvs <- makeCRPS(summaries$y_tilde, Z_hist, n_samps / n_thin)
+crps_tpca_ssvs <- makeCRPS(summaries$y_tilde, Z_hist, n_samps / n_thin)
 loo_tpca_ssvs <- loo(log_like)
 rm(samps, nus, v_invs, s_invs, betas, log_like, summaries)
   save(y_tilde_mean_tpca_ssvs, y_tilde_sd_tpca_ssvs, loo_tpca_ssvs, 
-       file="./sim-fit/tpcassvs.RData")
+       crps_tpca_ssvs, file="./sim-fit/tpcassvs.RData")
 }
 ```
 
@@ -971,11 +1043,11 @@ summaries <- processPCASamplesT2(t, p, n_samps, N, betas, s_invs, nus, v_invs,
 
 y_tilde_mean_tpca_lasso <- summaries$y_tilde_mean 
 y_tilde_sd_tpca_lasso <- summaries$y_tilde_sd
-# crps_tpca_lasso <- makeCRPS(summaries$y_tilde, Z_hist, n_samps / n_thin)
+crps_tpca_lasso <- makeCRPS(summaries$y_tilde, Z_hist, n_samps / n_thin)
 loo_tpca_lasso <- loo(log_like)
 rm(samps, nus, v_invs, s_invs, betas, log_like, summaries)
   save(y_tilde_mean_tpca_lasso, y_tilde_sd_tpca_lasso, loo_tpca_lasso, 
-       file="./sim-fit/tpcalasso.RData")
+       crps_tpca_lasso, file="./sim-fit/tpcalasso.RData")
 }
 ```
 
@@ -1028,12 +1100,12 @@ summaries <- processSamples(t, p, n_samps, N, betas, tau2s, s2s, Y_list,
 
 y_tilde_mean_ppca_ssvs <- summaries$y_tilde_mean
 y_tilde_sd_ppca_ssvs <- summaries$y_tilde_sd
-# crps_ppca_ssvs <- makeCRPS(summaries$y_tilde, Z_hist, n_samps / n_thin)
+crps_ppca_ssvs <- makeCRPS(summaries$y_tilde, Z_hist, n_samps / n_thin)
 loo_ppca_ssvs <- loo(matrix(unlist(summaries$log_like), n_samps / n_thin,
                             sum(nobs), byrow=FALSE))
 rm(samps, summaries, betas, s2s, tau2s)
   save(y_tilde_mean_ppca_ssvs, y_tilde_sd_ppca_ssvs, loo_ppca_ssvs, 
-       file="./sim-fit/ppcassvs.RData")
+       crps_ppca_ssvs, file="./sim-fit/ppcassvs.RData")
 }
 ```
 
@@ -1087,12 +1159,12 @@ summaries <- processSamples(t, p, n_samps, N, betas, tau2s, s2s, Y_list, H_list,
 
 y_tilde_mean_ppca_lasso <- summaries$y_tilde_mean
 y_tilde_sd_ppca_lasso <- summaries$y_tilde_sd
-# crps_ppca_lasso <- makeCRPS(summaries$y_tilde, Z_hist, n_samps / n_thin)
+crps_ppca_lasso <- makeCRPS(summaries$y_tilde, Z_hist, n_samps / n_thin)
 loo_ppca_lasso <- loo(matrix(unlist(summaries$log_like), 
                              n_samps / n_thin, sum(nobs), byrow=FALSE))
 rm(samps, summaries, betas, s2s, tau2s)
   save(y_tilde_mean_ppca_lasso, y_tilde_sd_ppca_lasso, loo_ppca_lasso, 
-       file="./sim-fit/ppcalasso.RData")
+       crps_ppca_lasso, file="./sim-fit/ppcalasso.RData")
 }
 ```
 
@@ -1153,16 +1225,16 @@ summaries <- processSamplesT(t, p, n_samps, N, betas, tau2s, s2s, nus,
 
 y_tilde_mean_tppca_ssvs <- summaries$y_tilde_mean 
 y_tilde_sd_tppca_ssvs <- summaries$y_tilde_sd
-# crps_tppca_ssvs <- makeCRPS(summaries$y_tilde, Z_hist, n_samps / n_thin)
+crps_tppca_ssvs <- makeCRPS(summaries$y_tilde, Z_hist, n_samps / n_thin)
 loo_tppca_ssvs <- loo(log_like)
 rm(samps, nus, v_invs, s2s, tau2s, betas, log_like, summaries)
   save(y_tilde_mean_tppca_ssvs, y_tilde_sd_tppca_ssvs, loo_tppca_ssvs, 
-       file="./sim-fit/tppcassvs.RData")
+       crps_tppca_ssvs, file="./sim-fit/tppcassvs.RData")
 }
 ```
 
 ```{r tpPCALassoSim, echo=FALSE, eval=TRUE}
-if (file.exists("./sim-fit/pcalasso.RData")) {
+if (file.exists("./sim-fit/tppcalasso.RData")) {
   load("./sim-fit/tppcalasso.RData")
 } else {
   ## fit mcmc
@@ -1219,11 +1291,11 @@ summaries <- processSamplesT(t, p, n_samps, N, betas, tau2s, s2s, nus, v_invs,
 
 y_tilde_mean_tppca_lasso <- summaries$y_tilde_mean 
 y_tilde_sd_tppca_lasso <- summaries$y_tilde_sd
-# crps_tppca_lasso <- makeCRPS(summaries$y_tilde, Z_hist, n_samps / n_thin)
+crps_tppca_lasso <- makeCRPS(summaries$y_tilde, Z_hist, n_samps / n_thin)
 loo_tppca_lasso <- loo(log_like)
 rm(samps, nus, v_invs, s2s, tau2s, betas, log_like, summaries)
   save(y_tilde_mean_tppca_lasso, y_tilde_sd_tppca_lasso, loo_tppca_lasso, 
-       file="./sim-fit/tppcalasso.RData")
+       crps_tppca_lasso, file="./sim-fit/tppcalasso.RData")
 }
 ```
 
@@ -1236,10 +1308,10 @@ mspe_pca_lasso <- mean((y_tilde_mean_pca_lasso - Z_hist)^2)
 mspe_tpca_ssvs <- mean((y_tilde_mean_tpca_ssvs-Z_hist)^2)
 mspe_tpca_lasso <- mean((y_tilde_mean_tpca_lasso-Z_hist)^2)
 
-# crps_pca_ssvs <- mean(crps_pca_ssvs)
-# crps_pca_lasso <- mean(crps_pca_lasso)
-# crps_tpca_ssvs <- mean(crps_tpca_ssvs)
-# crps_tpca_lasso <- mean(crps_tpca_lasso)
+crps_pca_ssvs <- mean(crps_pca_ssvs)
+crps_pca_lasso <- mean(crps_pca_lasso)
+crps_tpca_ssvs <- mean(crps_tpca_ssvs)
+crps_tpca_lasso <- mean(crps_tpca_lasso)
 
 ## probabilistic PCA
 mspe_ppca_ssvs <- mean((y_tilde_mean_ppca_ssvs - Z_hist)^2)
@@ -1261,12 +1333,12 @@ MSPE <- data.frame(cbind(c(mspe_pca_ssvs, mspe_pca_lasso),
 rownames(MSPE) <- c("SSVS", "LASSO")
 colnames(MSPE) <- c("PCR", "pPCR", "PCR", "pPCR")
 
-# CRPS <- data.frame(cbind(c(crps_pca_ssvs, crps_pca_lasso),
-#                          c(crps_ppca_ssvs, crps_ppca_lasso), 
-#                          c(crps_tpca_ssvs, crps_tpca_lasso),
-#                          c(crps_tppca_ssvs, crps_tppca_lasso)))
-# rownames(CRPS) <- c("SSVS", "LASSO")
-# colnames(CRPS) <- c("PCR", "pPCR", "PCR", "pPCR")
+CRPS <- data.frame(cbind(c(crps_pca_ssvs, crps_pca_lasso),
+                         c(crps_ppca_ssvs, crps_ppca_lasso),
+                         c(crps_tpca_ssvs, crps_tpca_lasso),
+                         c(crps_tppca_ssvs, crps_tppca_lasso)))
+rownames(CRPS) <- c("SSVS", "LASSO")
+colnames(CRPS) <- c("PCR", "pPCR", "PCR", "pPCR")
 
 
 loo_ic <- data.frame(cbind(c(loo_pca_ssvs$looic,
@@ -1287,9 +1359,9 @@ print(xtable(MSPE, digits=4, align=c("|r|rr|rr|")),
       hline.after=c(-1, 0, nrow(MSPE)), add.to.row=addtorow, file="mspe.tex",
       floating=FALSE, size="small", include.colnames=FALSE)
 # print(xtable(MSPE, digits=4), file="mspe.tex", floating=FALSE)
-# print(xtable(CRPS, digits=1, align=c("|r|rr|rr|")), 
-#       hline.after=c(-1, 0, nrow(CRPS)), add.to.row=addtorow, file="crps.tex",
-#       floating=FALSE, size="small", include.colnames=FALSE)
+print(xtable(CRPS, digits=1, align=c("|r|rr|rr|")),
+      hline.after=c(-1, 0, nrow(CRPS)), add.to.row=addtorow, file="crps.tex",
+      floating=FALSE, size="small", include.colnames=FALSE)
 # print(xtable(CRPS, digits=1), file="crps.tex", floating=FALSE)
 print(xtable(loo_ic, digits=0, align=c("|r|rr|rr|")), 
       hline.after=c(-1, 0, nrow(loo_ic)), add.to.row=addtorow, file="loo.tex",
@@ -1301,10 +1373,10 @@ simscores <- data.frame(cbind(c(mspe_pca_ssvs, mspe_ppca_ssvs,
                                 mspe_pca_lasso, mspe_ppca_lasso),
                               c(mspe_tpca_ssvs, mspe_tppca_ssvs,
                                 mspe_tpca_lasso, mspe_tppca_lasso),
-                              # c(crps_pca_ssvs, crps_ppca_ssvs,
-                              #   crps_pca_lasso, crps_ppca_lasso), 
-                              # c(crps_tpca_ssvs, crps_tppca_ssvs,
-                              #   crps_tpca_lasso,  crps_tppca_lasso),
+                              c(crps_pca_ssvs, crps_ppca_ssvs,
+                                crps_pca_lasso, crps_ppca_lasso),
+                              c(crps_tpca_ssvs, crps_tppca_ssvs,
+                                crps_tpca_lasso,  crps_tppca_lasso),
                               c(loo_pca_ssvs$looic, loo_ppca_ssvs$looic,
                                 loo_pca_lasso$looic, loo_ppca_lasso$looic), 
                               c(loo_tpca_ssvs$looic, loo_tppca_ssvs$looic,
@@ -1313,12 +1385,12 @@ simscores <- data.frame(cbind(c(mspe_pca_ssvs, mspe_ppca_ssvs,
 rownames(simscores) <- c("SSVS PCR", "SSVS pPCR", "LASSO PCR", "LASSO pPCR")
 addtorow <- list()
 addtorow$pos <- list(0)
-# addtorow$command <- c("\\multicolumn{1}{r}{} & \\multicolumn{2}{c}{MSPE} & \\multicolumn{2}{c}{CRPS} & \\multicolumn{2}{c}{LOO} \\\\
-#  Model & Gaussian & Robust & Gaussian & Robust & Gaussian & Robust \\\\\n")
-addtorow$command <- c("\\multicolumn{1}{r}{} & \\multicolumn{2}{c}{MSPE} &  \\multicolumn{2}{c}{LOO} \\\\
- Model & Gaussian & Robust & Gaussian & Robust \\\\\n")
-print(xtable(simscores, align=c("rrrrr"), digits = c(0, 3, 3, 0, 0)),
-# print(xtable(simscores, align=c("rrrrrrr"), digits = c(0, 3, 3, 0, 0, 0, 0)),
+addtorow$command <- c("\\multicolumn{1}{r}{} & \\multicolumn{2}{c}{MSPE} & \\multicolumn{2}{c}{CRPS} & \\multicolumn{2}{c}{LOO} \\\\
+ Model & Gaussian & Robust & Gaussian & Robust & Gaussian & Robust \\\\\n")
+# addtorow$command <- c("\\multicolumn{1}{r}{} & \\multicolumn{2}{c}{MSPE} &  \\multicolumn{2}{c}{LOO} \\\\
+#  Model & Gaussian & Robust & Gaussian & Robust \\\\\n")
+# print(xtable(simscores, align=c("rrrrr"), digits = c(0, 3, 3, 0, 0)),
+print(xtable(simscores, align=c("rrrrrrr"), digits = c(0, 3, 3, 0, 0, 0, 0)),
       hline.after=c(-1, 0, nrow(simscores)), add.to.row=addtorow, 
       file="sim-scores.tex",
       floating=FALSE, size="small", include.colnames=FALSE)
@@ -2087,12 +2159,12 @@ print(xtable(loo_ic_fort, digits=0, align=c("|r|rr|rr|")),
 \caption{Fort historical reconstruction scores. Smaller values indicate better model performance}
 \end{table}
 
-<!-- \begin{table} -->
-<!-- \centering -->
-<!-- \input{./fort-scores} -->
-<!-- \caption{Fort historical reconstruction scores. Smaller values indicate better model performance} -->
-<!-- \label{tab:fort} -->
-<!-- \end{table} -->
+\begin{table}
+\centering
+\input{./loooutlier}
+\caption{Fort historical reconstruction scores with outlier removed. Smaller values indicate better model performance}
+\label{tab:fort}
+\end{table}
 
 ```{r, cache=TRUE}
 finish_observer <- Sys.time()
@@ -2752,6 +2824,30 @@ mtext("(b)",side=3,line=-1.9,adj=c(0.1),cex=2,col="black")
 \label{fig:fortlooplots}
 \end{figure}
 
+\begin{figure}
+\centering\includegraphics[width=0.95\linewidth]{observer-sensitivity_files/figure-latex/loo_fort2-1.pdf}
+\caption{Plot of Fort data LOO Pareto shape estimates for robust PCR (a) and robust pPCR (b). Values less than 0.5 show good model performance and values over 1.0 show poor model performance.}
+\label{fig:fortlooplots}
+\end{figure}
+
+
+```{r loo_fort2, echo=FALSE, message=FALSE, include=FALSE, warning=FALSE, fig.height=6, fig.width=12, eval=TRUE}
+## PCR
+par(mfrow=c(2, 2), mar=c(3.5, 3.5, 1.75, 1) + 0.1, oma=c(0, 0, 0.25, 0.25) + 0.1, mgp=c(2, 1, 0))
+plot_k(loo_pca_lasso_fort$pareto_k, main="PCR reconstruction", ylim=c(0, 4.0),
+       cex.axis=1.5, cex.main=1.5, cex.lab=1.5)
+mtext("(a)",side=3,line=-1.9,adj=c(0.1),cex=2,col="black")
+plot_k(loo_pca_lasso_outlier$pareto_k, main="PCR outlier removed", ylim=c(0, 4.0),
+       cex.axis=1.5, cex.main=1.5, cex.lab=1.5)
+mtext("(b)",side=3,line=-1.9,adj=c(0.1),cex=2,col="black")
+plot_k(loo_tpca_lasso_outlier$pareto_k, main="robust PCR reconstruction", ylim=c(0, 4.0),
+       cex.axis=1.5, cex.main=1.5, cex.lab=1.5)
+mtext("(c)",side=3,line=-1.9,adj=c(0.1),cex=2,col="black")
+plot_k(loo_tppca_lasso_outlier$pareto_k, main="robust pPCR reconstruction", ylim=c(0, 4.0),
+       cex.axis=1.5, cex.main=1.5, cex.lab=1.5)
+mtext("(d)",side=3,line=-1.9,adj=c(0.1),cex=2,col="black")
+```
+
 ## Reconstruction Results
 
 ```{r simTablesOutlier, echo=FALSE, message=FALSE, eval=TRUE}
@@ -2884,6 +2980,7 @@ for(i in subset[3:4]){
           col=rev(colorRampPalette(brewer.pal(8, "RdBu"))(64)),
           zlim = c(min(min.fort), max(max.fort)), ylab = '', xlab='', yaxt="n",
           cex.main=2.5)
+    mtext("longitude", 1, line=2.25)
   }
 
   map(database = 'state', add = TRUE, col = 'black')
@@ -3192,71 +3289,31 @@ for (i in 1:(75 + 116)) {
   }
 }
 
-## adjust temp from 8:30AM to temperatures over a one minute grid choosing
-## (T_min+T_max)/2 resulting in constant mean shift of 3.027014
-
-madison_temp_adjusted <- madison_temp
-minneapolis_temp_adjusted <- minneapolis_temp
-detroit_temp_adjusted <- detroit_temp
-champaign_temp_adjusted <- champaign_temp
-madison_temp_adjusted[1:75, ] <- madison_temp_adjusted[1:75, ]+3.027014
-minneapolis_temp_adjusted[1:75, ] <- minneapolis_temp_adjusted[1:75, ]+3.027014
-detroit_temp_adjusted[1:75, ] <- detroit_temp_adjusted[1:75, ]+3.027014
-champaign_temp_adjusted[1:75, ] <- champaign_temp_adjusted[1:75, ]+3.027014
-
-require(ggplot2)
-time.dat <- data.frame(Temperature = c(madison_temp_adjusted[1:75, ],
-                                       minneapolis_temp_adjusted[1:75, ],
-                                       detroit_temp_adjusted[1:75, ],
-                                       champaign_temp_adjusted[1:75, ]),
-                       temp_min = c(madison_temp_adjusted[1:75, ] -
-                                      2*madison_temp_sd[1:75, ],
-                                    minneapolis_temp_adjusted[1:75, ] -
-                                      2*minneapolis_temp_sd[1:75, ],
-                                    detroit_temp_adjusted[1:75, ] -
-                                      2*detroit_temp_sd[1:75, ],
-                                    champaign_temp_adjusted[1:75, ] -
-                                      2*champaign_temp_sd[1:75, ]),
-                       temp_max = c(madison_temp_adjusted[1:75, ] +
-                                      2*madison_temp_sd[1:75, ],
-                                    minneapolis_temp_adjusted[1:75, ] +
-                                      2*minneapolis_temp_sd[1:75, ],
-                                    detroit_temp_adjusted[1:75, ] +
-                                      2*detroit_temp_sd[1:75, ],
-                                    champaign_temp_adjusted[1:75, ] +
-                                      2*champaign_temp_sd[1:75, ]),
-                       sd = c(madison_temp_sd[1:75, ], minneapolis_temp_sd[1:75, ],
-                              detroit_temp_sd[1:75, ], champaign_temp_sd[1:75, ]),
-                       location = c(rep("Madison", 150), rep("Minneapolis", 150),
-                                    rep("Detroit", 150), rep("Champaign", 150)),
-                       model = rep(c(rep("tPCA LASSO", 75), rep("tpPCA LASSO", 75)), times=4),
-                       Year = rep(1820:1894, 8))
-# time.dat <- data.frame(Temperature = c(madison_temp[1:75, ], minneapolis_temp[1:75, ],
-#                                        detroit_temp[1:75, ], champaign_temp[1:75, ]),
-#                        temp_min = c(madison_temp[1:75, ]-2*madison_temp_sd[1:75, ],
-#                                     minneapolis_temp[1:75, ]-2*minneapolis_temp_sd[1:75, ],
-#                                     detroit_temp[1:75, ]-2*detroit_temp_sd[1:75, ],
-#                                     champaign_temp[1:75, ]-2*champaign_temp_sd[1:75, ]),
-#                        temp_max = c(madison_temp[1:75, ]+2*madison_temp_sd[1:75, ],
-#                                     minneapolis_temp[1:75, ]+2*minneapolis_temp_sd[1:75, ],
-#                                     detroit_temp[1:75, ]+2*detroit_temp_sd[1:75, ],
-#                                     champaign_temp[1:75, ]+2*champaign_temp_sd[1:75, ]),
-#                        sd = c(madison_temp_sd[1:75, ], minneapolis_temp_sd[1:75, ],
-#                               detroit_temp_sd[1:75, ], champaign_temp_sd[1:75, ]),
-#                        location = c(rep("Madison", 150), rep("Minneapolis", 150),
-#                                     rep("Detroit", 150), rep("Champaign", 150)),
-#                        model = rep(c(rep("tPCA LASSO", 75), rep("tpPCA LASSO", 75)), times=4),
-#                        Year = rep(1820:1894, 8))
+library(ggplot2)
+time.dat <- data.frame(
+  Temperature = c(madison_temp[1:75, ], minneapolis_temp[1:75, ], 
+                  detroit_temp[1:75, ], champaign_temp[1:75, ]),
+  temp_min = c(madison_temp[1:75, ] - 2*madison_temp_sd[1:75, ],
+               minneapolis_temp[1:75, ] - 2*minneapolis_temp_sd[1:75, ],
+               detroit_temp[1:75, ] - 2*detroit_temp_sd[1:75, ],
+               champaign_temp[1:75, ] - 2*champaign_temp_sd[1:75, ]),
+  temp_max = c(madison_temp[1:75, ] + 2*madison_temp_sd[1:75, ],
+               minneapolis_temp[1:75, ] + 2*minneapolis_temp_sd[1:75, ],
+               detroit_temp[1:75, ] + 2*detroit_temp_sd[1:75, ],
+               champaign_temp[1:75, ] + 2*champaign_temp_sd[1:75, ]),
+  sd = c(madison_temp_sd[1:75, ], minneapolis_temp_sd[1:75, ],
+         detroit_temp_sd[1:75, ], champaign_temp_sd[1:75, ]),
+  location = c(rep("Madison", 150), rep("Minneapolis", 150),
+               rep("Detroit", 150), rep("Champaign", 150)),
+  model = rep(c(rep("robust PCA", 75), rep("robust pPCA", 75)), times=4),
+  Year = rep(1820:1894, 8))
 
 ts1 <- ggplot(time.dat, aes(x=Year, y=Temperature, group=model, color=model)) +
   geom_line(size=1.25, alpha=0.8) + facet_grid(location ~ .) +
-  #scale_fill_brewer(palette="RdBu") +
   geom_ribbon(aes(ymin=temp_min, ymax=temp_max, fill=model), alpha=0.3) +
   theme(text=element_text(size=10)) #+
-# geom_vline(xintercept=1846) + geom_vline(xintercept=1848)s
 library(gridExtra)
-# grid.arrange(ts1, top=textGrob("(a)"))
-ts1
+
 
 
 library(cowplot)
@@ -3264,17 +3321,11 @@ obs.dat <- data.frame(Year=1820:1894, N=nobs_outlier)
 ts2 <- ggplot(obs.dat, aes(x=Year, y=N)) + geom_bar(stat="identity") +
   labs(y=expression(m[t])) + theme(text=element_text(size=10)) +
   scale_y_continuous(breaks=c(50, 150, 250)) #+
-# geom_vline(xintercept=1846) +
-# geom_vline(xintercept=1848)
-# grid.arrange(ts2, top=textGrob("(b)"))
-ts2
-# ggdraw() +
-#   draw_plot(ts1, 0.01, 0.2, 1, .8) +
-#   draw_plot(ts2, 0, 0, 0.85, 0.2)
+
 ggdraw() +
   draw_plot(grid.arrange(ts1, top=textGrob("(a)")), 0.01, 0.2, 1, .8) +
   draw_plot(grid.arrange(ts2, top=textGrob("(b)")), 0, 0, 0.85, 0.2)
-# plot_grid(ts1, ts2, ncol=1, align="h")
+
 
 
 library(ggplot2)
@@ -3315,41 +3366,17 @@ gtable_frame <- function(g, width=unit(1,"null"), height=unit(1,"null")){
   all
 }
 
-
 p1 <- ggplotGrob(ts1)
 p2 <- ggplotGrob(ts2)
 fp1 <- gtable_frame(p1, height=unit(4, "null"))
 fp2 <- gtable_frame(p2)
+
 grid.newpage()
 grid.draw(rbind(fp1, fp2))
-
-
-layout(matrix(1:4, 2, 2))
-matplot(madison_temp[1:75, ], type='l', lty=1)
-for(i in 1:2) {
-  lines(madison_temp[1:75, i] + 2*madison_temp_sd[1:75, i], type= 'l', lty=2, col=i)
-  lines(madison_temp[1:75, i] - 2*madison_temp_sd[1:75, i], type= 'l', lty=2, col=i)
-}
-# abline(v=76)
-matplot(minneapolis_temp[1:75, ], type='l', lty=1)
-for(i in 1:2) {
-  lines(minneapolis_temp[1:75, i] + 2*minneapolis_temp_sd[1:75, i], type= 'l', lty=2, col=i)
-  lines(minneapolis_temp[1:75, i] - 2*minneapolis_temp_sd[1:75, i], type= 'l', lty=2, col=i)
-}
-# abline(v=76)
-matplot(detroit_temp[1:75, ], type='l', lty=1)
-for(i in 1:2) {
-  lines(detroit_temp[1:75, i] + 2*detroit_temp_sd[1:75, i], type= 'l', lty=2, col=i)
-  lines(detroit_temp[1:75, i] - 2*detroit_temp_sd[1:75, i], type= 'l', lty=2, col=i)
-}
-# abline(v=76)
-matplot(champaign_temp[1:75, ], type='l', lty=1)
-for(i in 1:2) {
-  lines(champaign_temp[1:75, i] + 2*champaign_temp_sd[1:75, i], type= 'l', lty=2, col=i)
-  lines(champaign_temp[1:75, i] - 2*champaign_temp_sd[1:75, i], type= 'l', lty=2, col=i)
-}
-# abline(v=76)
-
+grid.text("(a)", x = unit(0.95, "npc"), 
+          y = unit(.95, "npc"))#,gp = gpar(fontsize=20, fontfamily="Times New Roman"))
+grid.text("(b)", x = unit(0.95, "npc"), 
+          y = unit(.25, "npc"))#,gp = gpar(fontsize=20, fontfamily="Times New Roman"))
 
 layout(matrix(1:4, 2, 2))
 matplot(madison_temp, type='l', lty=1)
@@ -3361,21 +3388,10 @@ abline(v=76)
 matplot(champaign_temp, type='l', lty=1)
 abline(v=76)
 
-
-layout(matrix(1:4, 2, 2))
-matplot(madison_temp_adjusted, type='l', lty=1)
-abline(v=76)
-matplot(minneapolis_temp_adjusted, type='l', lty=1)
-abline(v=76)
-matplot(detroit_temp_adjusted, type='l', lty=1)
-abline(v=76)
-matplot(champaign_temp_adjusted, type='l', lty=1)
-abline(v=76)
-
 ```
 
 \begin{figure}
-\centering\includegraphics[width=0.95\linewidth]{observer-sensitivity_files/figure-latex/TimeSeries-5.pdf}
+\centering\includegraphics[width=0.95\linewidth]{observer-sensitivity_files/figure-latex/TimeSeries-4.pdf}
 \caption{Posterior predictions of mean July temperature with associated 95\% credible intervals at Champaign, Illinois, Detriot, Michigan, Madison, Wisconsin, and Minneapolis, Minnesota (a). The temporal change in the number of observations is shown in (b). Notice that the uncertainties in the point reconstructions are smallest in years with larger samples and largest in years with few samples. In general, the robust pPCR credible intervals are larger than the robust PCR credible intervals.}
 \label{fig:time}
 \end{figure}
