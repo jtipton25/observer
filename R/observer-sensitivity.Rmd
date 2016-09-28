@@ -1319,10 +1319,10 @@ mspe_ppca_lasso <- mean((y_tilde_mean_ppca_lasso - Z_hist)^2)
 mspe_tppca_ssvs <- mean((y_tilde_mean_tppca_ssvs-Z_hist)^2)
 mspe_tppca_lasso <- mean((y_tilde_mean_tppca_lasso-Z_hist)^2)
 
-# crps_ppca_ssvs <- mean(crps_ppca_ssvs)
-# crps_ppca_lasso <- mean(crps_ppca_lasso)
-# crps_tppca_ssvs <- mean(crps_tppca_ssvs)
-# crps_tppca_lasso <- mean(crps_tppca_lasso)
+crps_ppca_ssvs <- mean(crps_ppca_ssvs)
+crps_ppca_lasso <- mean(crps_ppca_lasso)
+crps_tppca_ssvs <- mean(crps_tppca_ssvs)
+crps_tppca_lasso <- mean(crps_tppca_lasso)
 ```
 
 ```{r simTablesXtable, echo=FALSE, message=FALSE, eval=TRUE}
@@ -3305,7 +3305,7 @@ time.dat <- data.frame(
          detroit_temp_sd[1:75, ], champaign_temp_sd[1:75, ]),
   location = c(rep("Madison", 150), rep("Minneapolis", 150),
                rep("Detroit", 150), rep("Champaign", 150)),
-  model = rep(c(rep("robust PCA", 75), rep("robust pPCA", 75)), times=4),
+  model = rep(c(rep("robust PCR", 75), rep("robust pPCR", 75)), times=4),
   Year = rep(1820:1894, 8))
 
 ts1 <- ggplot(time.dat, aes(x=Year, y=Temperature, group=model, color=model)) +
@@ -3374,9 +3374,9 @@ fp2 <- gtable_frame(p2)
 grid.newpage()
 grid.draw(rbind(fp1, fp2))
 grid.text("(a)", x = unit(0.95, "npc"), 
-          y = unit(.95, "npc"))#,gp = gpar(fontsize=20, fontfamily="Times New Roman"))
+          y = unit(.95, "npc"), gp = gpar(fontsize=20))
 grid.text("(b)", x = unit(0.95, "npc"), 
-          y = unit(.25, "npc"))#,gp = gpar(fontsize=20, fontfamily="Times New Roman"))
+          y = unit(.25, "npc"), gp = gpar(fontsize=20))
 
 layout(matrix(1:4, 2, 2))
 matplot(madison_temp, type='l', lty=1)
