@@ -4,11 +4,14 @@ model{
     tau_inv[j] ~ dlnorm(mu_tau, tau2_tau)              # pooling prior for data model sqrt(precision)
     tau2[j] <- pow(tau_inv[j], -2)                     # data model precision
   }
-  mu_tau ~ dnorm(0, 1 / 100)                           # pooled mean for data model sqrt(precision)
-  tau_tau ~ dunif(0, 100)                              # pooled sqrt(precision) for data model sqrt(precision)
+  mu_tau ~ dnorm(0, 1 / 1)                           # pooled mean for data model sqrt(precision)
+  tau_tau ~ dunif(0, 1)                              # pooled sqrt(precision) for data model sqrt(precision)
+  # mu_tau ~ dnorm(0, 1 / 100)                           # pooled mean for data model sqrt(precision)
+  # tau_tau ~ dunif(0, 100)                              # pooled sqrt(precision) for data model sqrt(precision)
   tau2_tau <- pow(tau_tau, 2)                          # pooled precision for data model sqrt(precision)
   ## latent variance model 
-  s_inv ~ dunif(0, 100)                                # prior for latent principal component sqrt(precision)
+  s_inv ~ dunif(0, 10)                                # prior for latent principal component sqrt(precision)
+  # s_inv ~ dunif(0, 100)                                # prior for latent principal component sqrt(precision)
   s2 <- pow(s_inv, -2)                                 # prior for latent principal component precision
   M_inv <- inverse(tKK / s2 + I_p)                     # scaling matrix for PCA
 
@@ -34,8 +37,10 @@ model{
     }
   }
 
-  mu_lambda2 ~ dlnorm(0, 1 / 100)                       # hierarchical mean of lambda2 gamma distribution
-  s_lambda2 ~ dunif(0, 100)                            # hierarchical standard deviation of lambda2 gamma distribution
+  mu_lambda2 ~ dlnorm(0, 1 / 1)                       # hierarchical mean of lambda2 gamma distribution
+  s_lambda2 ~ dunif(0, 1)                            # hierarchical standard deviation of lambda2 gamma distribution
+  # mu_lambda2 ~ dlnorm(0, 1 / 100)                       # hierarchical mean of lambda2 gamma distribution
+  # s_lambda2 ~ dunif(0, 100)                            # hierarchical standard deviation of lambda2 gamma distribution
   alpha_lambda2 <- pow(mu_lambda2, 2) / pow(s_lambda2, 2) # reparameterization of gamma distribution
   beta_lambda2 <- mu_lambda2 / pow(s_lambda2, 2)       # reparameterization of gamma distribution
 
@@ -44,9 +49,8 @@ model{
     nu_inv[i] ~ dbeta(alpha_nu, beta_nu)               # pooled inverse degrees of freedom for t data model
     nu[i] <- 2 / nu_inv[i]                             # pooled degrees of freedom for t data model
   }
-  # mu_nu ~ dbeta(0.5, 0.5)                              # prior for alternative parameterization
-  mu_nu ~ dbeta(2, 2)                              # prior for alternative parameterization
-  eta_nu ~ dgamma(1, 1)                                # prior for alternative parameterization
+  mu_nu ~ dbeta(5, 5)                                  # prior for alternative parameterization
+  eta_nu ~ dgamma(10, 0.1)                             # prior for alternative parameterization
   alpha_nu <- mu_nu * eta_nu                           # transformation of prior
   beta_nu <- (1 - mu_nu) * eta_nu                      # transformation of prior
 

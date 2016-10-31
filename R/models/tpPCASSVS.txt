@@ -4,11 +4,14 @@ model{
     tau_inv[j] ~ dlnorm(mu_tau, tau2_tau)              # pooling prior for data model sqrt(precision)
     tau2[j] <- pow(tau_inv[j], -2)                     # data model precision
   }
-  mu_tau ~ dnorm(0, 1 / 100)                           # pooled mean for data model sqrt(precision)
-  tau_tau ~ dunif(0, 100)                              # pooled sqrt(precision) for data model sqrt(precision)
+  mu_tau ~ dnorm(0, 1 / 1)                           # pooled mean for data model sqrt(precision)
+  tau_tau ~ dunif(0, 1)                              # pooled sqrt(precision) for data model sqrt(precision)
+  # mu_tau ~ dnorm(0, 1 / 100)                           # pooled mean for data model sqrt(precision)
+  # tau_tau ~ dunif(0, 100)                              # pooled sqrt(precision) for data model sqrt(precision)
   tau2_tau <- pow(tau_tau, 2)                          # pooled precision for data model sqrt(precision)
   ## latent variance model 
-  s_inv ~ dunif(0, 100)                                # prior for latent principal component sqrt(precision)
+  s_inv ~ dunif(0, 10)                                # prior for latent principal component sqrt(precision)
+  # s_inv ~ dunif(0, 100)                                # prior for latent principal component sqrt(precision)
   s2 <- pow(s_inv, -2)                                 # prior for latent principal component precision
   M_inv <- inverse(tKK / s2 + I_p)                     # scaling matrix for PCA
 
@@ -32,8 +35,10 @@ model{
     precision_beta[1, i] <- tau2_beta[i]               # regression coefficient effectively zero
     precision_beta[2, i] <- tau2_beta[i] / 1000        # nonzero coefficient
   }
-  mu_tau_beta ~ dnorm(0, 1 / 100)                      # pooled mean for regression coefficient sqrt(precision)
-  tau_tau_beta ~ dunif(0, 100)                         # pooled sqrt(precision) for regression coefficient sqrt(precision)
+  mu_tau_beta ~ dnorm(0, 1 / 1)                      # pooled mean for regression coefficient sqrt(precision)
+  tau_tau_beta ~ dunif(0, 1)                         # pooled sqrt(precision) for regression coefficient sqrt(precision)
+  # mu_tau_beta ~ dnorm(0, 1 / 100)                      # pooled mean for regression coefficient sqrt(precision)
+  # tau_tau_beta ~ dunif(0, 100)                         # pooled sqrt(precision) for regression coefficient sqrt(precision)
   tau2_tau_beta <- pow(tau_tau_beta, 2)                # pooled precision for  regression coefficient sqrt(precision)
   p_ind[1] <- 1/2                                      # prior probability of nonzero coefficient
   p_ind[2] <- 1 - p_ind[1]                             # prior probability effectively zero coefficient
@@ -53,9 +58,8 @@ model{
     nu[i] <- 2 / nu_inv[i]                             # pooled degrees of freedom for t data model
     # nu[i] ~ dgamma(2, 0.1)                             # unpooled degrees of freedom for t data model
   }
-  # mu_nu ~ dbeta(0.5, 0.5)                              # prior for alternative parameterization
-  mu_nu ~ dbeta(2, 2)                              # prior for alternative parameterization
-  eta_nu ~ dgamma(1, 1)                                # prior for alternative parameterization
+  mu_nu ~ dbeta(5, 5)                                  # prior for alternative parameterization
+  eta_nu ~ dgamma(10, 0.1)                             # prior for alternative parameterization
   alpha_nu <- mu_nu * eta_nu                           # transformation of prior
   beta_nu <- (1 - mu_nu) * eta_nu                      # transformation of prior
 

@@ -4,8 +4,10 @@ model{
     s_inv[i] ~ dlnorm(mu_s_inv, tau2_s)                # pooling prior for data model sqrt(precision)
     s2[i] <- pow(s_inv[i], -2)                         # data model precision
   }
-  mu_s_inv ~ dnorm(0, 1 / 100)                         # pooled mean for data model sqrt(precision)
-  tau_s ~ dunif(0, 100)                                # pooled sqrt(precision) for data model sqrt(precision)
+  mu_s_inv ~ dnorm(0, 1 / 1)                         # pooled mean for data model sqrt(precision)
+  tau_s ~ dunif(0, 1)                                # pooled sqrt(precision) for data model sqrt(precision)
+  # mu_s_inv ~ dnorm(0, 1 / 100)                         # pooled mean for data model sqrt(precision)
+  # tau_s ~ dunif(0, 100)                                # pooled sqrt(precision) for data model sqrt(precision)
   tau2_s <- pow(tau_s, 2)                              # pooled precision for data model sqrt(precision)
   
   for (i in 1:N_total){
@@ -23,8 +25,10 @@ model{
     precision_beta[1, i] <- tau2_beta[i]               # regression coefficient effectively zero
     precision_beta[2, i] <- tau2_beta[i] / 1000        # nonzero coefficient
   }
-  mu_tau_beta ~ dnorm(0, 1 / 100)                           # pooled mean for regression coefficient sqrt(precision)
-  tau_tau_beta ~ dunif(0, 100)                         # pooled sqrt(precision) for regression coefficient sqrt(precision)
+  mu_tau_beta ~ dnorm(0, 1 / 1)                           # pooled mean for regression coefficient sqrt(precision)
+  tau_tau_beta ~ dunif(0, 1)                         # pooled sqrt(precision) for regression coefficient sqrt(precision)
+  # mu_tau_beta ~ dnorm(0, 1 / 100)                           # pooled mean for regression coefficient sqrt(precision)
+  # tau_tau_beta ~ dunif(0, 100)                         # pooled sqrt(precision) for regression coefficient sqrt(precision)
   tau2_tau_beta <- pow(tau_tau_beta, 2)                # pooled precision for  regression coefficient sqrt(precision)
   p_ind[1] <- 1/2                                      # prior probability of nonzero coefficient
   p_ind[2] <- 1 - p_ind[1]                             # prior probability effectively zero coefficient
@@ -42,9 +46,9 @@ model{
     nu_inv[i] ~ dbeta(alpha_nu, beta_nu)               # pooled inverse degrees of freedom for t data model
     nu[i] <- 2 / nu_inv[i]                             # pooled degrees of freedom for t data model
   }
-  # mu_nu ~ dbeta(0.5, 0.5)                              # prior for alternative parameterization
-  mu_nu ~ dbeta(2, 2)                              # prior for alternative parameterization
-  eta_nu ~ dgamma(1, 1)                                # prior for alternative parameterization
+
+  mu_nu ~ dbeta(5, 5)                                  # prior for alternative parameterization
+  eta_nu ~ dgamma(10, 0.1)                             # prior for alternative parameterization
   alpha_nu <- mu_nu * eta_nu                           # transformation of prior
   beta_nu <- (1 - mu_nu) * eta_nu                      # transformation of prior
 
