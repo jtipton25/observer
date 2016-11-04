@@ -3,6 +3,11 @@
 .RData
 .Ruserdata
 
+R/.Rapp.history
+R/observer-fit/
+R/observer.pdf
+R/outlier-fit/
+R/sim-fit/
 data/fort_july_full.csv
 R/mspe.tex
 R/observer-sensitivity.pdf
