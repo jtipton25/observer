@@ -26,3 +26,6 @@ This file converts the raw data into an .RData file for use in the file `observe
 This R markdown file runs all analyses in the paper and produces all plots included in the paper as well as diagnostic/model checks not included in the publication. `observer.Rmd` takes approximately 24 hours to run on my 2015 Macbook Pro laptop.
 
 ### Data
+
+
+[![DOI](https://zenodo.org/badge/61319535.svg)](https://zenodo.org/badge/latestdoi/61319535)
