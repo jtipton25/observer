@@ -1,3 +1,5 @@
+[![DOI](https://zenodo.org/badge/61319535.svg)](https://zenodo.org/badge/latestdoi/61319535)
+
 # Observer data climate reconstruction
 
 This is the repository for code and data for the analysis in 
@@ -28,4 +30,4 @@ This R markdown file runs all analyses in the paper and produces all plots inclu
 ### Data
 
 
-[![DOI](https://zenodo.org/badge/61319535.svg)](https://zenodo.org/badge/latestdoi/61319535)
+
