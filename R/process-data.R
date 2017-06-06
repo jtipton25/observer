@@ -149,7 +149,7 @@ library(scales)
 ##  Need to get the raw data exactly??  #######################################
 ##  Is the csv sufficient for reproducability?  ##############################
 
-july.table <- read.csv("./data/fort_july_full.csv")
+july.table <- read.csv("../data/fort_july_full.csv")
 july.table <- july.table[which(july.table$year < 1895), ]
 
 # july.table <- subset(fort.table, month == 7)
@@ -300,7 +300,7 @@ library(rgdal)
 library(fields)
 
 ## Load PRISM data for raster skeleton
-setwd("./data/Temp")
+setwd("../data/Temp")
 ## The Prism is the grid data. It is a 132 x 240 grid with each gridcell consisting of approximately 8km x 8km (8.3 x 8.3)
 #  Get the PRISM data:
 #  For now we'll just use July temperatures:
